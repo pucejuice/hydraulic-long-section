@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html>
 <head>
-<meta charset="UTF-8">
+<meta charset="utf-8">
 <title>Stormwater Long Section Designer</title>
 
 <script src="https://d3js.org/d3.v7.min.js"></script>
@@ -9,603 +9,431 @@
 <style>
 
 body{
-background:#1e1e1e;
+background:#111;
 color:#ddd;
 font-family:Arial;
-margin:20px;
+margin:0;
 }
 
-h1{color:#7fd6ff}
+#toolbar{
+background:#222;
+padding:10px;
+border-bottom:1px solid #444;
+}
+
+button,input{
+background:#333;
+color:#ddd;
+border:1px solid #555;
+padding:5px;
+margin:3px;
+}
 
 table{
 border-collapse:collapse;
 width:100%;
-margin-top:10px;
-}
-
-td,th{
-border:1px solid #444;
-padding:4px;
 font-size:12px;
 }
 
-input,select{
-background:#222;
-color:#eee;
-border:1px solid #555;
-width:90px;
-}
-
-button{
-background:#333;
-color:#eee;
-border:1px solid #555;
-padding:6px;
-margin:2px;
+th,td{
+border:1px solid #444;
+padding:4px;
+text-align:center;
 }
 
 svg{
-background:#111;
-border:1px solid #333;
+background:#181818;
 }
 
-.lowVel{background:#332200}
-.highVel{background:#330000}
+.pipe{
+stroke:#66aaff;
+stroke-width:3;
+}
+
+.obvert{
+stroke:#3388ff;
+stroke-dasharray:5,3;
+}
+
+.water{
+stroke:#00ffff;
+stroke-width:2;
+}
+
+.hgl{
+stroke:#ff8800;
+stroke-width:2;
+stroke-dasharray:6,4;
+}
+
+.ground{
+stroke:#44aa44;
+stroke-width:2;
+}
+
+.pit{
+stroke:#aaa;
+fill:none;
+}
+
+.handle{
+fill:#ff4444;
+cursor:pointer;
+}
 
 </style>
 </head>
 
 <body>
 
-<h1>Stormwater Long Section Designer</h1>
-
-<h3>Design Storm</h3>
+<div id="toolbar">
 
 Rainfall Depth (mm)
-<input id="rainDepth" value="25">
+<input id="rainDepth" type="number" value="20">
 
-Duration (minutes)
-<input id="duration" value="5">
+Duration (min)
+<input id="duration" type="number" value="5">
 
-<button onclick="runHydrology()">Compute Runoff</button>
-<button onclick="autoSize()">Auto Size Pipes</button>
-
-<br><br>
-
-<button onclick="addRow()">Add Pit</button>
-<button onclick="solveHGL()">Solve HGL</button>
-<button onclick="saveJSON()">Save JSON</button>
-<button onclick="loadJSON()">Load JSON</button>
-<button onclick="exportCSV()">Export CSV</button>
+<button onclick="autosize()">Auto Size Pipes</button>
+<button onclick="saveJSON()">Save</button>
+<button onclick="loadJSON()">Load</button>
 <button onclick="exportDXF()">Export DXF</button>
 
-<input type="file" id="fileInput" style="display:none">
+</div>
 
-<table id="pipeTable">
+<svg id="chart" width="1200" height="500"></svg>
 
-<thead>
-
-<tr>
-<th>Chain</th>
-<th>Ground RL</th>
-<th>Invert RL</th>
-<th>Length</th>
-<th>Diameter</th>
-<th>Material</th>
-<th>n</th>
-
-<th>Catchment m²</th>
-<th>Imperv</th>
-
-<th>Local Q</th>
-<th>Cum Q</th>
-
-<th>Slope</th>
-<th>Velocity</th>
-
-<th>Pit K</th>
-</tr>
-
-</thead>
-
-<tbody></tbody>
-
-</table>
-
-<br>
-
-<svg id="profile" width="1200" height="420"></svg>
+<h3 style="padding-left:10px">Pipe Table</h3>
+<table id="table"></table>
 
 <script>
 
-/* ------------------- MATERIALS ------------------- */
+const width=1200
+const height=500
 
-const materials={
-"PVC":0.009,
-"HDPE":0.010,
-"Ductile Iron":0.012,
-"Concrete":0.013,
-"Vitrified Clay":0.014
+const svg=d3.select("#chart")
+
+const scaleX=d3.scaleLinear().range([80,width-50])
+const scaleY=d3.scaleLinear().range([height-50,40])
+
+const diameters=[0.09,0.1,0.15,0.225,0.3,0.375,0.45]
+
+const manning={
+PVC:0.011,
+CONCRETE:0.013
 }
 
-/* ------------------- PIPE SIZES ------------------- */
-
-const diameters=[
-
-90,
-100,
-150,
-225,
-300,
-375,
-450,
-525,
-600,
-750,
-900,
-1050,
-1200
-
+let pits=[
+{id:0,chain:0,ground:10,invert:8,area:500,imp:0.8},
+{id:1,chain:40,ground:9.8,invert:7.8,area:400,imp:0.7},
+{id:2,chain:80,ground:9.7,invert:7.6,area:300,imp:0.6}
 ]
 
-/* ------------------- DATA ------------------- */
+let pipes=[
+{from:0,to:1,d:0.225,n:0.013},
+{from:1,to:2,d:0.225,n:0.013}
+]
 
-let pipes=[]
+function runoff(area,imp){
 
-/* ------------------- ADD ROW ------------------- */
+let depth=document.getElementById("rainDepth").value/1000
+let dur=document.getElementById("duration").value*60
 
-function addRow(){
+let vol=area*imp*depth
+return vol/dur
 
-pipes.push({
+}
 
-chain:0,
-ground:0,
-invert:0,
-length:10,
+function areaPartial(d,y){
 
-diameter:150,
-material:"PVC",
-n:materials["PVC"],
+let r=d/2
+let theta=2*Math.acos((r-y)/r)
 
-area:0,
-imperv:0,
+return r*r*(theta-Math.sin(theta))/2
 
-localQ:0,
-cumQ:0,
+}
 
-slope:0,
-velocity:0,
+function wettedPerimeter(d,y){
 
-k:0,
+let r=d/2
+let theta=2*Math.acos((r-y)/r)
 
-hgl:0
+return r*theta
 
+}
+
+function hydraulicRadius(A,P){
+
+return A/P
+
+}
+
+function manningQ(A,R,S,n){
+
+return (1/n)*A*Math.pow(R,2/3)*Math.sqrt(S)
+
+}
+
+function solveDepth(pipe,Q){
+
+let d=pipe.d
+
+for(let y=0.001;y<=d;y+=d/200){
+
+let A=areaPartial(d,y)
+let P=wettedPerimeter(d,y)
+let R=hydraulicRadius(A,P)
+
+let S=(pits[pipe.from].invert-pits[pipe.to].invert)/(pits[pipe.to].chain-pits[pipe.from].chain)
+
+let q=manningQ(A,R,S,pipe.n)
+
+if(q>=Q) return y
+
+}
+
+return d
+
+}
+
+function compute(){
+
+let results=[]
+
+let flow=0
+
+for(let i=pipes.length-1;i>=0;i--){
+
+let p= pipes[i]
+
+flow+=runoff(pits[p.from].area,pits[p.from].imp)
+
+let y=solveDepth(p,flow)
+
+let A=areaPartial(p.d,y)
+let v=flow/A
+
+results.unshift({
+flow,
+depth:y,
+velocity:v
 })
 
-renderTable()
+}
+
+return results
 
 }
 
-/* ------------------- TABLE ------------------- */
+function autosize(){
 
-function renderTable(){
+let flow=0
 
-let tbody=document.querySelector("#pipeTable tbody")
+for(let i=pipes.length-1;i>=0;i--){
 
-tbody.innerHTML=""
+let p=pipes[i]
 
-pipes.forEach((p,i)=>{
-
-let row=document.createElement("tr")
-
-if(p.velocity<0.6)row.classList.add("lowVel")
-if(p.velocity>5)row.classList.add("highVel")
-
-row.innerHTML=`
-
-<td><input value="${p.chain}" onchange="pipes[${i}].chain=this.value"></td>
-
-<td><input value="${p.ground}" onchange="pipes[${i}].ground=this.value"></td>
-
-<td><input value="${p.invert}" onchange="pipes[${i}].invert=this.value"></td>
-
-<td><input value="${p.length}" onchange="pipes[${i}].length=this.value"></td>
-
-<td><input value="${p.diameter}" onchange="pipes[${i}].diameter=this.value"></td>
-
-<td>
-<select onchange="setMaterial(${i},this.value)">
-${Object.keys(materials).map(m=>`<option ${m==p.material?"selected":""}>${m}</option>`)}
-</select>
-</td>
-
-<td>${p.n}</td>
-
-<td><input value="${p.area}" onchange="pipes[${i}].area=this.value"></td>
-
-<td><input value="${p.imperv}" onchange="pipes[${i}].imperv=this.value"></td>
-
-<td>${p.localQ.toFixed(2)}</td>
-
-<td>${p.cumQ.toFixed(2)}</td>
-
-<td>${p.slope.toFixed(4)}</td>
-
-<td>${p.velocity.toFixed(2)}</td>
-
-<td><input value="${p.k}" onchange="pipes[${i}].k=this.value"></td>
-
-`
-
-tbody.appendChild(row)
-
-})
-
-drawProfile()
-
-}
-
-function setMaterial(i,m){
-
-pipes[i].material=m
-pipes[i].n=materials[m]
-
-renderTable()
-
-}
-
-/* ------------------- HYDROLOGY ------------------- */
-
-function runHydrology(){
-
-let depth=parseFloat(document.getElementById("rainDepth").value)/1000
-
-let duration=parseFloat(document.getElementById("duration").value)*60
-
-pipes.forEach(p=>{
-
-let C=p.imperv*0.9+(1-p.imperv)*0.2
-
-let volume=depth*p.area*C
-
-let Q=volume/duration
-
-p.localQ=Q*1000
-
-})
-
-let cum=0
-
-pipes.forEach(p=>{
-
-cum+=p.localQ
-p.cumQ=cum
-
-})
-
-renderTable()
-
-}
-
-/* ------------------- MANNING ------------------- */
-
-function pipeCapacity(D,n,S){
-
-let A=Math.PI*D*D/4
-
-let R=D/4
-
-let Q=(1/n)*A*Math.pow(R,2/3)*Math.sqrt(S)
-
-return Q*1000
-
-}
-
-/* ------------------- AUTO SIZE ------------------- */
-
-function autoSize(){
-
-pipes.forEach((p,i)=>{
-
-if(i>0){
-
-let up=pipes[i-1]
-
-let S=(up.invert-p.invert)/p.length
-
-p.slope=S
+flow+=runoff(pits[p.from].area,pits[p.from].imp)
 
 for(let d of diameters){
 
-let cap=pipeCapacity(d/1000,p.n,S)
+p.d=d
 
-if(cap>=p.cumQ){
+let y=solveDepth(p,flow)
 
-p.diameter=d
-break
-
-}
+if(y/d<0.8) break
 
 }
 
-let A=Math.PI*Math.pow(p.diameter/1000,2)/4
+}
 
-p.velocity=(p.cumQ/1000)/A
+draw()
 
 }
 
-})
-
-renderTable()
-
-}
-
-/* ------------------- HGL ------------------- */
-
-function solveHGL(){
-
-pipes.forEach((p,i)=>{
-
-if(i==0){
-
-p.hgl=p.invert+1
-
-}else{
-
-let up=pipes[i-1]
-
-let V=p.velocity
-
-let g=9.81
-
-let hf=(V*V)/(2*g)
-
-let pitLoss=p.k*hf
-
-p.hgl=up.hgl-hf-pitLoss
-
-}
-
-})
-
-drawProfile()
-
-}
-
-/* ------------------- PROFILE ------------------- */
-
-function drawProfile(){
-
-const svg=d3.select("#profile")
+function draw(){
 
 svg.selectAll("*").remove()
 
-if(pipes.length==0)return
+let results=compute()
 
-let width=1200
-let height=420
+scaleX.domain(d3.extent(pits,d=>d.chain))
+scaleY.domain([d3.min(pits,d=>d.invert)-1,d3.max(pits,d=>d.ground)+1])
 
-let chain=pipes.map(p=>+p.chain)
-
-let invert=pipes.map(p=>+p.invert)
-let ground=pipes.map(p=>+p.ground)
-let hgl=pipes.map(p=>+p.hgl)
-
-let x=d3.scaleLinear()
-.domain(d3.extent(chain))
-.range([60,width-40])
-
-let y=d3.scaleLinear()
-.domain([
-d3.min(invert)-2,
-d3.max(ground)+2
-])
-.range([height-40,40])
-
-/* grid */
-
-for(let i=0;i<10;i++){
-
-svg.append("line")
-.attr("x1",60)
-.attr("x2",width-40)
-.attr("y1",40+i*35)
-.attr("y2",40+i*35)
-.attr("stroke","#222")
-
-}
-
-/* ground */
-
-let line=d3.line()
-.x((d,i)=>x(chain[i]))
-.y(d=>y(d))
+let groundLine=d3.line()
+.x(d=>scaleX(d.chain))
+.y(d=>scaleY(d.ground))
 
 svg.append("path")
-.datum(ground)
-.attr("d",line)
-.attr("stroke","#7fd6ff")
-.attr("fill","none")
-.attr("stroke-width",2)
-
-/* invert */
-
-svg.append("path")
-.datum(invert)
-.attr("d",line)
-.attr("stroke","#00ff9c")
-.attr("fill","none")
-.attr("stroke-width",2)
-
-/* HGL */
-
-svg.append("path")
-.datum(hgl)
-.attr("d",line)
-.attr("stroke","#ffaa00")
-.attr("fill","none")
-.attr("stroke-width",2)
-
-/* pit markers */
-
-svg.selectAll("circle")
-.data(pipes)
-.enter()
-.append("circle")
-.attr("cx",d=>x(d.chain))
-.attr("cy",d=>y(d.invert))
-.attr("r",5)
-.attr("fill","#fff")
-.call(d3.drag()
-
-.on("drag",(event,d)=>{
-
-d.invert=y.invert(event.y)
-
-renderTable()
-
-})
-
-)
-
-/* labels */
-
-svg.selectAll(".flow")
-.data(pipes)
-.enter()
-.append("text")
-.attr("x",d=>x(d.chain))
-.attr("y",d=>y(d.invert)-10)
-.attr("fill","#ffaa00")
-.attr("font-size","10px")
-.text(d=>d.cumQ.toFixed(1)+" L/s")
-
-}
-
-/* ------------------- SAVE JSON ------------------- */
-
-function saveJSON(){
-
-let data=JSON.stringify(pipes,null,2)
-
-let blob=new Blob([data])
-
-let a=document.createElement("a")
-
-a.href=URL.createObjectURL(blob)
-
-a.download="longsection.json"
-
-a.click()
-
-}
-
-/* ------------------- LOAD JSON ------------------- */
-
-function loadJSON(){
-
-document.getElementById("fileInput").click()
-
-}
-
-document.getElementById("fileInput").addEventListener("change",function(e){
-
-let reader=new FileReader()
-
-reader.onload=function(){
-
-pipes=JSON.parse(reader.result)
-
-renderTable()
-
-}
-
-reader.readAsText(e.target.files[0])
-
-})
-
-/* ------------------- CSV ------------------- */
-
-function exportCSV(){
-
-let csv="chain,ground,invert,diameter,flow\n"
-
-pipes.forEach(p=>{
-
-csv+=`${p.chain},${p.ground},${p.invert},${p.diameter},${p.cumQ}\n`
-
-})
-
-let blob=new Blob([csv])
-
-let a=document.createElement("a")
-
-a.href=URL.createObjectURL(blob)
-
-a.download="pipes.csv"
-
-a.click()
-
-}
-
-/* ------------------- DXF ------------------- */
-
-function exportDXF(){
-
-let dxf=`0
-SECTION
-2
-ENTITIES
-`
+.datum(pits)
+.attr("d",groundLine)
+.attr("class","ground")
 
 pipes.forEach((p,i)=>{
 
-if(i>0){
+let a=pits[p.from]
+let b=pits[p.to]
 
-let p0=pipes[i-1]
+let y1=a.invert
+let y2=b.invert
 
-dxf+=`
-0
-LINE
-8
-INVERT
-10
-${p0.chain}
-20
-${p0.invert}
-11
-${p.chain}
-21
-${p.invert}
-`
+svg.append("line")
+.attr("x1",scaleX(a.chain))
+.attr("y1",scaleY(y1))
+.attr("x2",scaleX(b.chain))
+.attr("y2",scaleY(y2))
+.attr("class","pipe")
 
-}
+svg.append("line")
+.attr("x1",scaleX(a.chain))
+.attr("y1",scaleY(y1+p.d))
+.attr("x2",scaleX(b.chain))
+.attr("y2",scaleY(y2+p.d))
+.attr("class","obvert")
+
+let r=results[i]
+
+let ws1=y1+r.depth
+let ws2=y2+r.depth
+
+svg.append("line")
+.attr("x1",scaleX(a.chain))
+.attr("y1",scaleY(ws1))
+.attr("x2",scaleX(b.chain))
+.attr("y2",scaleY(ws2))
+.attr("class","water")
 
 })
 
-dxf+=`
-0
-ENDSEC
-0
-EOF
+pits.forEach(p=>{
+
+svg.append("rect")
+.attr("x",scaleX(p.chain)-6)
+.attr("y",scaleY(p.ground))
+.attr("width",12)
+.attr("height",scaleY(p.invert)-scaleY(p.ground))
+.attr("class","pit")
+
+svg.append("circle")
+.attr("cx",scaleX(p.chain))
+.attr("cy",scaleY(p.invert))
+.attr("r",5)
+.attr("class","handle")
+.call(d3.drag().on("drag",function(event){
+
+p.invert=scaleY.invert(event.y)
+draw()
+
+}))
+
+})
+
+updateTable(results)
+
+}
+
+function updateTable(results){
+
+let html="<tr><th>Pipe</th><th>Dia</th><th>Flow</th><th>Vel</th><th>Depth</th></tr>"
+
+pipes.forEach((p,i)=>{
+
+let r=results[i]
+
+html+=`<tr>
+<td>${i+1}</td>
+<td>${(p.d*1000).toFixed(0)}</td>
+<td>${r.flow.toFixed(3)}</td>
+<td>${r.velocity.toFixed(2)}</td>
+<td>${(r.depth/p.d).toFixed(2)}</td>
+</tr>`
+
+})
+
+document.getElementById("table").innerHTML=html
+
+}
+
+function saveJSON(){
+
+let data={pits,pipes}
+
+let blob=new Blob([JSON.stringify(data)],{type:"application/json"})
+
+let a=document.createElement("a")
+a.href=URL.createObjectURL(blob)
+a.download="longsection.json"
+a.click()
+
+}
+
+function loadJSON(){
+
+let input=document.createElement("input")
+input.type="file"
+
+input.onchange=e=>{
+
+let file=e.target.files[0]
+
+let reader=new FileReader()
+
+reader.onload=ev=>{
+
+let d=JSON.parse(ev.target.result)
+
+pits=d.pits
+pipes=d.pipes
+
+draw()
+
+}
+
+reader.readAsText(file)
+
+}
+
+input.click()
+
+}
+
+function exportDXF(){
+
+let dxf="0\nSECTION\n2\nENTITIES\n"
+
+pipes.forEach(p=>{
+
+let a=pits[p.from]
+let b=pits[p.to]
+
+dxf+=`0
+LINE
+8
+PIPE
+10
+${a.chain}
+20
+${a.invert}
+11
+${b.chain}
+21
+${b.invert}
 `
+
+})
+
+dxf+="0\nENDSEC\n0\nEOF"
 
 let blob=new Blob([dxf])
 
 let a=document.createElement("a")
-
 a.href=URL.createObjectURL(blob)
-
 a.download="longsection.dxf"
-
 a.click()
 
 }
 
-/* ------------------- INIT ------------------- */
-
-addRow()
-addRow()
+draw()
 
 </script>
 
