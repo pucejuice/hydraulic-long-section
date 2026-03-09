@@ -3,7 +3,6 @@
 <head>
 <meta charset="utf-8">
 <title>Stormwater Long Section Designer</title>
-
 <script src="https://d3js.org/d3.v7.min.js"></script>
 
 <style>
@@ -33,6 +32,7 @@ table{
 border-collapse:collapse;
 width:100%;
 font-size:12px;
+margin-top:6px;
 }
 
 th,td{
@@ -45,40 +45,22 @@ svg{
 background:#181818;
 }
 
-.pipe{
-stroke:#66aaff;
-stroke-width:3;
-}
+.pipe{stroke:#66aaff;stroke-width:3}
+.obvert{stroke:#3388ff;stroke-dasharray:5,3}
+.water{stroke:#00ffff;stroke-width:2}
+.hgl{stroke:#ffaa00;stroke-width:2;stroke-dasharray:6,4}
+.ground{stroke:#44aa44;stroke-width:2}
 
-.obvert{
-stroke:#3388ff;
-stroke-dasharray:5,3;
-}
-
-.water{
-stroke:#00ffff;
-stroke-width:2;
-}
-
-.hgl{
-stroke:#ff8800;
-stroke-width:2;
-stroke-dasharray:6,4;
-}
-
-.ground{
-stroke:#44aa44;
-stroke-width:2;
-}
-
-.pit{
-stroke:#aaa;
-fill:none;
-}
+.pit{stroke:#aaa;fill:none}
 
 .handle{
 fill:#ff4444;
 cursor:pointer;
+}
+
+.label{
+fill:#ccc;
+font-size:11px;
 }
 
 </style>
@@ -101,27 +83,28 @@ Duration (min)
 
 </div>
 
-<svg id="chart" width="1200" height="500"></svg>
+<svg id="chart" width="1200" height="450"></svg>
 
-<h3 style="padding-left:10px">Pipe Table</h3>
-<table id="table"></table>
+<h3>Pits</h3>
+<table id="pitTable"></table>
+
+<h3>Pipes</h3>
+<table id="pipeTable"></table>
+
+<h3>Hydraulic Results</h3>
+<table id="resultTable"></table>
 
 <script>
 
 const width=1200
-const height=500
+const height=450
 
 const svg=d3.select("#chart")
 
-const scaleX=d3.scaleLinear().range([80,width-50])
+const scaleX=d3.scaleLinear().range([80,width-40])
 const scaleY=d3.scaleLinear().range([height-50,40])
 
 const diameters=[0.09,0.1,0.15,0.225,0.3,0.375,0.45]
-
-const manning={
-PVC:0.011,
-CONCRETE:0.013
-}
 
 let pits=[
 {id:0,chain:0,ground:10,invert:8,area:500,imp:0.8},
@@ -162,13 +145,7 @@ return r*theta
 
 }
 
-function hydraulicRadius(A,P){
-
-return A/P
-
-}
-
-function manningQ(A,R,S,n){
+function manning(A,R,S,n){
 
 return (1/n)*A*Math.pow(R,2/3)*Math.sqrt(S)
 
@@ -182,11 +159,12 @@ for(let y=0.001;y<=d;y+=d/200){
 
 let A=areaPartial(d,y)
 let P=wettedPerimeter(d,y)
-let R=hydraulicRadius(A,P)
+let R=A/P
 
-let S=(pits[pipe.from].invert-pits[pipe.to].invert)/(pits[pipe.to].chain-pits[pipe.from].chain)
+let S=(pits[pipe.from].invert-pits[pipe.to].invert)/
+(pits[pipe.to].chain-pits[pipe.from].chain)
 
-let q=manningQ(A,R,S,pipe.n)
+let q=manning(A,R,S,pipe.n)
 
 if(q>=Q) return y
 
@@ -199,12 +177,11 @@ return d
 function compute(){
 
 let results=[]
-
 let flow=0
 
 for(let i=pipes.length-1;i>=0;i--){
 
-let p= pipes[i]
+let p=pipes[i]
 
 flow+=runoff(pits[p.from].area,pits[p.from].imp)
 
@@ -213,15 +190,177 @@ let y=solveDepth(p,flow)
 let A=areaPartial(p.d,y)
 let v=flow/A
 
+let a=pits[p.from]
+let b=pits[p.to]
+
+let len=b.chain-a.chain
+let grade=(a.invert-b.invert)/len
+
 results.unshift({
 flow,
 depth:y,
-velocity:v
+velocity:v,
+length:len,
+grade
 })
 
 }
 
 return results
+
+}
+
+function draw(){
+
+svg.selectAll("*").remove()
+
+let results=compute()
+
+scaleX.domain(d3.extent(pits,d=>d.chain))
+scaleY.domain([d3.min(pits,d=>d.invert)-1,d3.max(pits,d=>d.ground)+1])
+
+let groundLine=d3.line()
+.x(d=>scaleX(d.chain))
+.y(d=>scaleY(d.ground))
+
+svg.append("path")
+.datum(pits)
+.attr("d",groundLine)
+.attr("class","ground")
+
+pipes.forEach((p,i)=>{
+
+let a=pits[p.from]
+let b=pits[p.to]
+
+let r=results[i]
+
+let ws1=a.invert+r.depth
+let ws2=b.invert+r.depth
+
+svg.append("line")
+.attr("x1",scaleX(a.chain))
+.attr("y1",scaleY(a.invert))
+.attr("x2",scaleX(b.chain))
+.attr("y2",scaleY(b.invert))
+.attr("class","pipe")
+
+svg.append("line")
+.attr("x1",scaleX(a.chain))
+.attr("y1",scaleY(a.invert+p.d))
+.attr("x2",scaleX(b.chain))
+.attr("y2",scaleY(b.invert+p.d))
+.attr("class","obvert")
+
+svg.append("line")
+.attr("x1",scaleX(a.chain))
+.attr("y1",scaleY(ws1))
+.attr("x2",scaleX(b.chain))
+.attr("y2",scaleY(ws2))
+.attr("class","water")
+
+svg.append("line")
+.attr("x1",scaleX(a.chain))
+.attr("y1",scaleY(ws1+0.05))
+.attr("x2",scaleX(b.chain))
+.attr("y2",scaleY(ws2+0.05))
+.attr("class","hgl")
+
+svg.append("text")
+.attr("x",(scaleX(a.chain)+scaleX(b.chain))/2)
+.attr("y",scaleY(ws1)-5)
+.text("WSE")
+.attr("class","label")
+
+svg.append("text")
+.attr("x",(scaleX(a.chain)+scaleX(b.chain))/2)
+.attr("y",scaleY(ws1+0.05)-5)
+.text("HGL")
+.attr("class","label")
+
+})
+
+pits.forEach(p=>{
+
+svg.append("rect")
+.attr("x",scaleX(p.chain)-6)
+.attr("y",scaleY(p.ground))
+.attr("width",12)
+.attr("height",scaleY(p.invert)-scaleY(p.ground))
+.attr("class","pit")
+
+svg.append("circle")
+.attr("cx",scaleX(p.chain))
+.attr("cy",scaleY(p.invert))
+.attr("r",5)
+.attr("class","handle")
+.call(d3.drag().on("drag",function(event){
+
+p.invert=scaleY.invert(event.y)
+draw()
+
+}))
+
+})
+
+updateTables(results)
+
+}
+
+function updateTables(results){
+
+let pitHTML="<tr><th>ID</th><th>Chain</th><th>Ground</th><th>Invert</th><th>Area</th><th>Imp</th></tr>"
+
+pits.forEach((p,i)=>{
+
+pitHTML+=`
+<tr>
+<td>${i}</td>
+<td><input value="${p.chain}" onchange="pits[${i}].chain=this.value;draw()"></td>
+<td><input value="${p.ground}" onchange="pits[${i}].ground=this.value;draw()"></td>
+<td><input value="${p.invert}" onchange="pits[${i}].invert=this.value;draw()"></td>
+<td><input value="${p.area}" onchange="pits[${i}].area=this.value;draw()"></td>
+<td><input value="${p.imp}" onchange="pits[${i}].imp=this.value;draw()"></td>
+</tr>`
+})
+
+document.getElementById("pitTable").innerHTML=pitHTML
+
+let pipeHTML="<tr><th>Pipe</th><th>From</th><th>To</th><th>Dia mm</th><th>n</th></tr>"
+
+pipes.forEach((p,i)=>{
+
+pipeHTML+=`
+<tr>
+<td>${i}</td>
+<td>${p.from}</td>
+<td>${p.to}</td>
+<td><input value="${p.d*1000}" onchange="pipes[${i}].d=this.value/1000;draw()"></td>
+<td><input value="${p.n}" onchange="pipes[${i}].n=this.value;draw()"></td>
+</tr>`
+})
+
+document.getElementById("pipeTable").innerHTML=pipeHTML
+
+let resHTML="<tr><th>Pipe</th><th>Length</th><th>Grade</th><th>Flow</th><th>Velocity</th><th>Depth</th><th>y/D</th></tr>"
+
+results.forEach((r,i)=>{
+
+let p=pipes[i]
+
+resHTML+=`
+<tr>
+<td>${i}</td>
+<td>${r.length.toFixed(1)}</td>
+<td>${r.grade.toFixed(4)}</td>
+<td>${r.flow.toFixed(3)}</td>
+<td>${r.velocity.toFixed(2)}</td>
+<td>${r.depth.toFixed(3)}</td>
+<td>${(r.depth/p.d).toFixed(2)}</td>
+</tr>`
+})
+
+document.getElementById("resultTable").innerHTML=resHTML
 
 }
 
@@ -251,118 +390,13 @@ draw()
 
 }
 
-function draw(){
-
-svg.selectAll("*").remove()
-
-let results=compute()
-
-scaleX.domain(d3.extent(pits,d=>d.chain))
-scaleY.domain([d3.min(pits,d=>d.invert)-1,d3.max(pits,d=>d.ground)+1])
-
-let groundLine=d3.line()
-.x(d=>scaleX(d.chain))
-.y(d=>scaleY(d.ground))
-
-svg.append("path")
-.datum(pits)
-.attr("d",groundLine)
-.attr("class","ground")
-
-pipes.forEach((p,i)=>{
-
-let a=pits[p.from]
-let b=pits[p.to]
-
-let y1=a.invert
-let y2=b.invert
-
-svg.append("line")
-.attr("x1",scaleX(a.chain))
-.attr("y1",scaleY(y1))
-.attr("x2",scaleX(b.chain))
-.attr("y2",scaleY(y2))
-.attr("class","pipe")
-
-svg.append("line")
-.attr("x1",scaleX(a.chain))
-.attr("y1",scaleY(y1+p.d))
-.attr("x2",scaleX(b.chain))
-.attr("y2",scaleY(y2+p.d))
-.attr("class","obvert")
-
-let r=results[i]
-
-let ws1=y1+r.depth
-let ws2=y2+r.depth
-
-svg.append("line")
-.attr("x1",scaleX(a.chain))
-.attr("y1",scaleY(ws1))
-.attr("x2",scaleX(b.chain))
-.attr("y2",scaleY(ws2))
-.attr("class","water")
-
-})
-
-pits.forEach(p=>{
-
-svg.append("rect")
-.attr("x",scaleX(p.chain)-6)
-.attr("y",scaleY(p.ground))
-.attr("width",12)
-.attr("height",scaleY(p.invert)-scaleY(p.ground))
-.attr("class","pit")
-
-svg.append("circle")
-.attr("cx",scaleX(p.chain))
-.attr("cy",scaleY(p.invert))
-.attr("r",5)
-.attr("class","handle")
-.call(d3.drag().on("drag",function(event){
-
-p.invert=scaleY.invert(event.y)
-draw()
-
-}))
-
-})
-
-updateTable(results)
-
-}
-
-function updateTable(results){
-
-let html="<tr><th>Pipe</th><th>Dia</th><th>Flow</th><th>Vel</th><th>Depth</th></tr>"
-
-pipes.forEach((p,i)=>{
-
-let r=results[i]
-
-html+=`<tr>
-<td>${i+1}</td>
-<td>${(p.d*1000).toFixed(0)}</td>
-<td>${r.flow.toFixed(3)}</td>
-<td>${r.velocity.toFixed(2)}</td>
-<td>${(r.depth/p.d).toFixed(2)}</td>
-</tr>`
-
-})
-
-document.getElementById("table").innerHTML=html
-
-}
-
 function saveJSON(){
 
-let data={pits,pipes}
-
-let blob=new Blob([JSON.stringify(data)],{type:"application/json"})
+let blob=new Blob([JSON.stringify({pits,pipes})])
 
 let a=document.createElement("a")
 a.href=URL.createObjectURL(blob)
-a.download="longsection.json"
+a.download="storm_network.json"
 a.click()
 
 }
@@ -373,8 +407,6 @@ let input=document.createElement("input")
 input.type="file"
 
 input.onchange=e=>{
-
-let file=e.target.files[0]
 
 let reader=new FileReader()
 
@@ -389,7 +421,7 @@ draw()
 
 }
 
-reader.readAsText(file)
+reader.readAsText(e.target.files[0])
 
 }
 
@@ -409,7 +441,7 @@ let b=pits[p.to]
 dxf+=`0
 LINE
 8
-PIPE
+PIPE_INVERT
 10
 ${a.chain}
 20
@@ -428,7 +460,7 @@ let blob=new Blob([dxf])
 
 let a=document.createElement("a")
 a.href=URL.createObjectURL(blob)
-a.download="longsection.dxf"
+a.download="long_section.dxf"
 a.click()
 
 }
