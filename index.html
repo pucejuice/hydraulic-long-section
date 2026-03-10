@@ -1155,7 +1155,7 @@ function runCalc() {
     }
   }
 
-  // Pipe-by-pipe hydraulics
+  // ---- Per-pipe hydraulics (geometry + flow only, HGL in second pass) ----
   const pipeResults = pipes.map(p => {
     const n_val = PIPE_MATERIALS[p.material]?.n || 0.013;
     const slope = getPipeSlope(p);
@@ -1165,6 +1165,7 @@ function runCalc() {
     const ratio = Qfull > 0 ? Qdesign / Qfull : 999;
 
     const D = p.dia / 1000;
+    // Normal depth approximation (partial flow)
     let y_norm = D;
     if (ratio < 1) {
       const r = Math.min(ratio, 0.999);
@@ -1174,12 +1175,27 @@ function runCalc() {
     const fromN = getNode(p.from);
     const toN   = getNode(p.to);
 
-    // Pit entry loss: hL = K · V²/(2g) using the velocity in this pipe
-    const K_pit = (fromN && fromN.K != null) ? (fromN.K || 0) : 0;
-    const hL_pit = K_pit * (Vfull * Vfull) / (2 * 9.81);
+    // Friction slope at design flow (m/m)
+    // Sf = (Q·n / (A·R^(2/3)))²   — Manning's inverse
+    let Sf = slope / 1000; // default to pipe slope if flow=0
+    if (Qdesign > 0 && Vfull > 0) {
+      const D_m = D;
+      const A_pipe = Math.PI * D_m * D_m / 4;
+      const R_pipe = D_m / 4;
+      const n_m = n_val;
+      const Q_m3s = Qdesign / 1000;
+      const denom = A_pipe * Math.pow(R_pipe, 2/3) / n_m;
+      Sf = denom > 0 ? Math.pow(Q_m3s / denom, 2) : slope / 1000;
+    }
 
-    const hgl_us = fromN ? fromN.il + y_norm + hL_pit : null;
-    const hgl_ds = toN   ? toN.il   + y_norm          : null;
+    const pipeLen = fromN && toN ? Math.abs(toN.chainage - fromN.chainage) : 0;
+    const hf = Sf * pipeLen; // friction head loss along pipe
+
+    const K_pit = (fromN && fromN.K != null) ? (fromN.K || 0) : 0;
+    // Pit loss uses actual design velocity: V_des = Q_des / A_pipe
+    const A_pipe = Math.PI * D * D / 4;
+    const V_des = Qdesign > 0 && A_pipe > 0 ? (Qdesign / 1000) / A_pipe : 0;
+    const hL_pit = K_pit * V_des * V_des / (2 * 9.81);
 
     const cover_us = fromN ? fromN.gl - fromN.il - D : null;
     const cover_ds = toN   ? toN.gl - toN.il - D   : null;
@@ -1188,10 +1204,7 @@ function runCalc() {
 
     const status = ratio > 1 ? 'OVER' : Vfull < 0.6 ? 'LOW_V' : 'OK';
 
-    // --- Pipe sizing advice ---
-    // Minimum adequate size
     const minSized = sizePipe(Qdesign, slope, p.material);
-    // Check if one size down still works
     const curIdx = STD_DIAMETERS.indexOf(p.dia);
     const prevDia = curIdx > 0 ? STD_DIAMETERS[curIdx - 1] : null;
     let canDownsize = false;
@@ -1211,14 +1224,52 @@ function runCalc() {
 
     return {
       pipe: p, slope, Qfull, Vfull,
-      Qdesign, ratio,
-      hgl_us, hgl_ds,
-      K_pit, hL_pit,
+      Qdesign, ratio, y_norm, hf,
+      K_pit, hL_pit, pipeLen,
+      hgl_us: null, hgl_ds: null,   // filled in second pass
       cover_us_mm: cover_us !== null ? cover_us * 1000 : null,
       cover_ds_mm: cover_ds !== null ? cover_ds * 1000 : null,
-      coverOk, status, y_norm, sizing
+      coverOk, status, sizing
     };
   });
+
+  // ---- HGL second pass: seed at outlet, propagate upstream ----
+  // hgl_ds of last pipe = outlet IL + normal depth (tailwater = normal depth at outlet)
+  // hgl_us of pipe      = hgl_ds + friction loss along pipe
+  // hgl_ds of upstream pipe = hgl_us of this pipe + pit entry loss at the joining node
+  //
+  // "hgl at node" = EGL at that node's crown, used as downstream boundary for next pipe up
+  const hglAtNode = {}; // node id → HGL level entering that node from downstream
+
+  // Seed: outlet node — HGL = IL + y_norm of last pipe
+  if (pipeResults.length > 0) {
+    const lastPR = pipeResults[pipeResults.length - 1];
+    const outletNode = getNode(lastPR.pipe.to);
+    if (outletNode) {
+      hglAtNode[outletNode.id] = outletNode.il + lastPR.y_norm;
+    }
+  }
+
+  // Walk pipes from downstream to upstream
+  for (let pi = pipeResults.length - 1; pi >= 0; pi--) {
+    const pr = pipeResults[pi];
+    const fromN = getNode(pr.pipe.from);
+    const toN   = getNode(pr.pipe.to);
+
+    // DS end of this pipe = HGL arriving at the downstream node
+    const hgl_ds_node = hglAtNode[pr.pipe.to] ?? (toN ? toN.il + pr.y_norm : null);
+    pr.hgl_ds = hgl_ds_node;
+
+    // US end: add friction loss up the pipe
+    const hgl_us_pipe = hgl_ds_node !== null ? hgl_ds_node + pr.hf : null;
+    // Then add pit entry loss at the upstream node
+    const hgl_us_node = hgl_us_pipe !== null ? hgl_us_pipe + pr.hL_pit : null;
+    pr.hgl_us = hgl_us_node;
+
+    // The HGL "at" the upstream node (available to the pipe above) = hgl_us_node
+    // (i.e. the HGL just inside the upstream pit, above any entry loss)
+    if (fromN) hglAtNode[fromN.id] = hgl_us_node;
+  }
 
   calcResults = { pipeResults, flowAtNode, i, Fy, ari };
 
