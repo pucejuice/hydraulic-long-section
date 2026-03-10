@@ -645,14 +645,14 @@
         <div class="section-header">PIPE MATERIALS (AS3500.3)</div>
         <div style="font-size:11px;color:var(--muted);line-height:1.8;">
           <table style="width:100%;border-collapse:collapse;">
-            <tr><td style="padding:2px 4px;color:var(--accent3);">uPVC SN8</td><td style="padding:2px 4px;font-family:'Share Tech Mono',mono;text-align:right;">n=0.010</td></tr>
-            <tr><td style="padding:2px 4px;color:var(--accent3);">uPVC SN4</td><td style="padding:2px 4px;font-family:'Share Tech Mono',mono;text-align:right;">n=0.010</td></tr>
+            <tr><td style="padding:2px 4px;color:var(--accent3);">uPVC</td><td style="padding:2px 4px;font-family:'Share Tech Mono',mono;text-align:right;">n=0.010</td></tr>
             <tr><td style="padding:2px 4px;color:var(--accent3);">HDPE</td><td style="padding:2px 4px;font-family:'Share Tech Mono',mono;text-align:right;">n=0.011</td></tr>
             <tr><td style="padding:2px 4px;color:var(--accent3);">VC (Vitrified Clay)</td><td style="padding:2px 4px;font-family:'Share Tech Mono',mono;text-align:right;">n=0.013</td></tr>
             <tr><td style="padding:2px 4px;color:var(--accent3);">Concrete</td><td style="padding:2px 4px;font-family:'Share Tech Mono',mono;text-align:right;">n=0.013</td></tr>
             <tr><td style="padding:2px 4px;color:var(--accent3);">RC Pipe</td><td style="padding:2px 4px;font-family:'Share Tech Mono',mono;text-align:right;">n=0.013</td></tr>
             <tr><td style="padding:2px 4px;color:var(--accent3);">Cast Iron</td><td style="padding:2px 4px;font-family:'Share Tech Mono',mono;text-align:right;">n=0.012</td></tr>
-            <tr><td style="padding:2px 4px;color:var(--accent3);">GRP</td><td style="padding:2px 4px;font-family:'Share Tech Mono',mono;text-align:right;">n=0.010</td></tr>
+            <tr><td style="padding:2px 4px;color:var(--accent3);">Galv. Steel</td><td style="padding:2px 4px;font-family:'Share Tech Mono',mono;text-align:right;">n=0.015</td></tr>
+            <tr><td style="padding:2px 4px;color:var(--accent3);">GRP (Fibreglass)</td><td style="padding:2px 4px;font-family:'Share Tech Mono',mono;text-align:right;">n=0.010</td></tr>
           </table>
         </div>
         <div class="section-header">STANDARD PIPE DIAMETERS (mm)</div>
@@ -860,26 +860,26 @@ class Drawing extends Collection {
 // APP STATE
 // ============================================================
 const PIPE_MATERIALS = {
-  'uPVC SN8':        { n: 0.010, label: 'uPVC SN8' },
-  'uPVC SN4':        { n: 0.010, label: 'uPVC SN4' },
+  'uPVC':            { n: 0.010, label: 'uPVC' },
   'HDPE':            { n: 0.011, label: 'HDPE' },
   'VC':              { n: 0.013, label: 'Vitrified Clay' },
   'Concrete':        { n: 0.013, label: 'Concrete' },
   'RC Pipe':         { n: 0.013, label: 'RC Pipe' },
   'Cast Iron':       { n: 0.012, label: 'Cast Iron' },
-  'GRP':             { n: 0.010, label: 'GRP' },
+  'Galv. Steel':     { n: 0.015, label: 'Galvanised Steel' },
+  'GRP':             { n: 0.010, label: 'GRP (Fibreglass)' },
 };
 const STD_DIAMETERS = [90, 100, 150, 225, 300, 375, 450, 525, 600, 750, 900];
 
 let nodes = [
-  { id: 'P1', type: 'pit',    label: 'Pit 1',       chainage: 0,    gl: 102.500, il: 101.500, area: 500,  Cf: 0.70 },
-  { id: 'P2', type: 'pit',    label: 'Pit 2',       chainage: 30,   gl: 102.200, il: 101.100, area: 800,  Cf: 0.65 },
-  { id: 'K1', type: 'outlet', label: 'Kerb Outlet',  chainage: 60,   gl: 101.800, il: 100.650, area: 0,    Cf: 0 },
+  { id: 'P1', type: 'pit',    label: 'Pit 1',       chainage: 0,    gl: 102.500, il: 101.500, area: 500,  Cf: 0.70, K: 0.5 },
+  { id: 'P2', type: 'pit',    label: 'Pit 2',       chainage: 30,   gl: 102.200, il: 101.100, area: 800,  Cf: 0.65, K: 0.5 },
+  { id: 'K1', type: 'outlet', label: 'Kerb Outlet',  chainage: 60,   gl: 101.800, il: 100.650, area: 0,    Cf: 0,    K: 0.0 },
 ];
 
 let pipes = [
-  { from: 'P1', to: 'P2', dia: 225, material: 'uPVC SN8', slopeMode: 'il' },
-  { from: 'P2', to: 'K1', dia: 300, material: 'uPVC SN8', slopeMode: 'il' },
+  { from: 'P1', to: 'P2', dia: 225, material: 'uPVC', slopeMode: 'il' },
+  { from: 'P2', to: 'K1', dia: 300, material: 'uPVC', slopeMode: 'il' },
 ];
 
 let calcResults = null;
@@ -1173,8 +1173,13 @@ function runCalc() {
 
     const fromN = getNode(p.from);
     const toN   = getNode(p.to);
-    const hgl_us = fromN ? fromN.il + y_norm : null;
-    const hgl_ds = toN   ? toN.il + y_norm   : null;
+
+    // Pit entry loss: hL = K · V²/(2g) using the velocity in this pipe
+    const K_pit = (fromN && fromN.K != null) ? (fromN.K || 0) : 0;
+    const hL_pit = K_pit * (Vfull * Vfull) / (2 * 9.81);
+
+    const hgl_us = fromN ? fromN.il + y_norm + hL_pit : null;
+    const hgl_ds = toN   ? toN.il   + y_norm          : null;
 
     const cover_us = fromN ? fromN.gl - fromN.il - D : null;
     const cover_ds = toN   ? toN.gl - toN.il - D   : null;
@@ -1208,6 +1213,7 @@ function runCalc() {
       pipe: p, slope, Qfull, Vfull,
       Qdesign, ratio,
       hgl_us, hgl_ds,
+      K_pit, hL_pit,
       cover_us_mm: cover_us !== null ? cover_us * 1000 : null,
       cover_ds_mm: cover_ds !== null ? cover_ds * 1000 : null,
       coverOk, status, y_norm, sizing
@@ -1386,6 +1392,25 @@ function renderNodeList() {
             <label>Fraction Imp. (C)</label>
             <input type="number" value="${n.Cf}" step="0.01" min="0" max="1" onchange="updateNode('${n.id}','Cf',+this.value)">
           </div>
+        </div>
+        <div class="field-row">
+          <div class="field">
+            <label>Pit Loss (K)</label>
+            <input type="number" id="k-input-${n.id}" value="${(n.K ?? 0.5).toFixed(2)}" step="0.05" min="0" max="3"
+              onchange="updateNode('${n.id}','K',+this.value)">
+          </div>
+          <div class="field">
+            <label>Preset</label>
+            <select onchange="applyKPreset('${n.id}',this.value); this.value=''">
+              <option value="">— select —</option>
+              <option value="0.2">Straight through (0.20)</option>
+              <option value="0.4">Slight bend / 22° (0.40)</option>
+              <option value="0.5">45° bend (0.50)</option>
+              <option value="0.7">90° bend (0.70)</option>
+              <option value="0.9">Sharp 90° / tee (0.90)</option>
+              <option value="1.5">Complex junction (1.50)</option>
+            </select>
+          </div>
         </div>` : ''}
       </div>
     `;
@@ -1394,7 +1419,15 @@ function renderNodeList() {
   renderPipeTable();
 }
 
+function applyKPreset(id, val) {
+  if (!val) return;
+  updateNode(id, 'K', parseFloat(val));
+  const inp = document.getElementById('k-input-' + id);
+  if (inp) inp.value = parseFloat(val).toFixed(2);
+}
+
 function renderPipeTable() {
+
   const tbody = document.getElementById('pipe-tbody');
   tbody.innerHTML = '';
   pipes.forEach((p, idx) => {
@@ -1458,7 +1491,7 @@ function renderResults(res) {
 
 // ============================================================
 // DATA TABLE — one row per pipe, pit data merged into same row
-// Columns: Pit label | Chainage | GL | IL | Depth | Cover | Area | C | → | Pipe | Mat | n | Len | Slope | Qdes | Qfull | Q/Qf | Vfull | HGL_US | HGL_DS | Status
+// Columns: Node | Ch | GL | IL | Depth | Cover | Area | C | K | Q node | → Pipe | Mat | n | Len | Slope | Qdes | Qfull | Q/Qf | Vfull | hL pit | HGL US | HGL DS | Status
 // ============================================================
 function renderDataTable(res) {
   const wrap = document.getElementById('data-table-wrap');
@@ -1479,6 +1512,7 @@ function renderDataTable(res) {
     <th>Cover (mm)</th>
     <th>Area (m²)</th>
     <th>C</th>
+    <th>K</th>
     <th>Q node<br>(L/s)</th>
     <th class="col-pipe">Pipe</th>
     <th class="col-pipe">Mat.</th>
@@ -1489,6 +1523,7 @@ function renderDataTable(res) {
     <th class="col-pipe">Q full<br>(L/s)</th>
     <th class="col-pipe">Q/Qf</th>
     <th class="col-pipe">V full<br>(m/s)</th>
+    <th class="col-pipe">hL pit<br>(m)</th>
     <th class="col-pipe">HGL US<br>(m)</th>
     <th class="col-pipe">HGL DS<br>(m)</th>
     <th class="col-pipe">Status</th>
@@ -1535,6 +1570,7 @@ function renderDataTable(res) {
       <td class="${coverCls}">${cov_us}</td>
       <td>${fromN.area > 0 ? fromN.area.toFixed(0) : '—'}</td>
       <td>${fromN.Cf > 0 ? fromN.Cf.toFixed(2) : '—'}</td>
+      <td style="color:var(--accent3);">${fromN.K != null ? fromN.K.toFixed(2) : '—'}</td>
       <td>${qNode.toFixed(2)}</td>
       <td class="col-pipe" style="color:var(--accent3);font-weight:bold;">Ø${p.dia}${sizeBadge}</td>
       <td class="col-pipe">${p.material}</td>
@@ -1545,6 +1581,7 @@ function renderDataTable(res) {
       <td class="col-pipe">${pr.Qfull.toFixed(2)}</td>
       <td class="col-pipe ${ratioC}">${pr.ratio.toFixed(3)}</td>
       <td class="col-pipe ${velC}">${pr.Vfull.toFixed(2)}</td>
+      <td class="col-pipe" style="color:${pr.hL_pit>0.05?'var(--warn)':''};">${pr.hL_pit > 0 ? pr.hL_pit.toFixed(4) : '—'}</td>
       <td class="col-pipe">${pr.hgl_us !== null ? pr.hgl_us.toFixed(3) : '—'}</td>
       <td class="col-pipe">${pr.hgl_ds !== null ? pr.hgl_ds.toFixed(3) : '—'}</td>
       <td class="col-pipe ${statC}">${pr.status}</td>
@@ -1566,7 +1603,7 @@ function renderDataTable(res) {
       <td>${(lastNode.gl - lastNode.il).toFixed(3)}</td>
       <td class="${coverCls}">${cov_last !== null ? cov_last : '—'}</td>
       <td colspan="3" style="color:var(--muted);font-style:italic;">— outlet —</td>
-      <td colspan="12" style="color:var(--muted);"></td>
+      <td colspan="14" style="color:var(--muted);"></td>
     </tr>`;
   }
 
@@ -1820,12 +1857,11 @@ function addPit() {
     chainage: lastNode ? lastNode.chainage + 20 : 0,
     gl: lastNode ? lastNode.gl - 0.2 : 102,
     il: lastNode ? lastNode.il - 0.3 : 101,
-    area: 500, Cf: 0.7
+    area: 500, Cf: 0.7, K: 0.5
   });
-  // Add pipe if there are prior nodes
   if (nodes.length >= 2) {
     const prev = nodes[nodes.length - 2];
-    pipes.push({ from: prev.id, to: id, dia: 225, material: 'uPVC SN8', slopeMode: 'il' });
+    pipes.push({ from: prev.id, to: id, dia: 225, material: 'uPVC', slopeMode: 'il' });
   }
   renderNodeList();
   renderLongSection();
@@ -1840,11 +1876,11 @@ function addOutlet() {
     chainage: lastNode ? lastNode.chainage + 20 : 40,
     gl: lastNode ? lastNode.gl - 0.2 : 101.5,
     il: lastNode ? lastNode.il - 0.3 : 100.5,
-    area: 0, Cf: 0
+    area: 0, Cf: 0, K: 0.0
   });
   if (nodes.length >= 2) {
     const prev = nodes[nodes.length - 2];
-    pipes.push({ from: prev.id, to: id, dia: 225, material: 'uPVC SN8', slopeMode: 'il' });
+    pipes.push({ from: prev.id, to: id, dia: 225, material: 'uPVC', slopeMode: 'il' });
   }
   renderNodeList();
   renderLongSection();
