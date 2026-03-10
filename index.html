@@ -502,6 +502,9 @@
   <div class="logo">PIPE<span>CALC</span></div>
   <div style="font-size:11px;color:var(--muted);letter-spacing:1px;">LONG SECTION — AS3500.3</div>
   <div class="header-btns">
+    <button class="btn" onclick="saveDesign()" title="Save design as JSON">💾 Save</button>
+    <button class="btn" onclick="document.getElementById('load-input').click()" title="Load design from JSON">📂 Load</button>
+    <input type="file" id="load-input" accept=".json" style="display:none" onchange="loadDesign(event)">
     <button class="btn" onclick="exportDXF()">⬇ Export DXF</button>
     <button class="btn primary" onclick="runCalc()">▶ Calculate</button>
   </div>
@@ -2107,8 +2110,130 @@ function exportDXF() {
 }
 
 // ============================================================
-// INIT
+// SAVE / LOAD JSON
 // ============================================================
+function saveDesign() {
+  const design = {
+    _version: 2,
+    _saved: new Date().toISOString(),
+    // Nodes and pipes
+    nodes,
+    pipes,
+    // Rainfall settings
+    rainfall: {
+      lat:       parseFloat(document.getElementById('lat').value)            || null,
+      lng:       parseFloat(document.getElementById('lng').value)            || null,
+      ari:       parseInt(document.getElementById('ari-select').value)       || 10,
+      durMin:    parseInt(document.getElementById('rain-dur').value)         || 5,
+      depthMm:   parseFloat(document.getElementById('rain-depth').value)     || 25,
+      freqMode:  document.getElementById('freq-factor-mode').value,
+    },
+    // Drawing settings
+    view: {
+      vscale: document.getElementById('vscale').value,
+      hscale: document.getElementById('hscale').value,
+    },
+    // Full IFD table if available
+    ifd: ifdData ? JSON.parse(JSON.stringify(ifdData)) : null,
+    // Last calc results summary (informational, not reloaded)
+    calcSummary: calcResults ? calcResults.pipeResults.map(r => ({
+      pipe: `${r.pipe.from}→${r.pipe.to}`,
+      dia: r.pipe.dia,
+      Qdesign: +r.Qdesign.toFixed(3),
+      Qfull:   +r.Qfull.toFixed(3),
+      ratio:   +r.ratio.toFixed(4),
+      Vfull:   +r.Vfull.toFixed(3),
+      slope:   +r.slope.toFixed(4),
+      status:  r.status,
+    })) : [],
+  };
+
+  const json = JSON.stringify(design, null, 2);
+  const blob = new Blob([json], { type: 'application/json' });
+  const url  = URL.createObjectURL(blob);
+  const a    = document.createElement('a');
+  // Suggest filename from project + timestamp
+  const ts = new Date().toISOString().slice(0,16).replace('T','_').replace(':','');
+  a.href     = url;
+  a.download = `pipecalc_${ts}.json`;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+function loadDesign(event) {
+  const file = event.target.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = function(e) {
+    try {
+      const design = JSON.parse(e.target.result);
+
+      // --- Nodes & pipes ---
+      if (Array.isArray(design.nodes) && design.nodes.length >= 2) {
+        nodes = design.nodes;
+      }
+      if (Array.isArray(design.pipes) && design.pipes.length >= 1) {
+        pipes = design.pipes;
+      }
+
+      // --- Rainfall settings ---
+      const rf = design.rainfall || {};
+      if (rf.lat  != null) document.getElementById('lat').value  = rf.lat;
+      if (rf.lng  != null) document.getElementById('lng').value  = rf.lng;
+      if (rf.ari  != null) {
+        const ariSel = document.getElementById('ari-select');
+        for (const opt of ariSel.options) {
+          if (opt.value === String(rf.ari)) { ariSel.value = String(rf.ari); break; }
+        }
+      }
+      if (rf.durMin != null) {
+        const durSel = document.getElementById('rain-dur');
+        for (const opt of durSel.options) {
+          if (opt.value === String(rf.durMin)) { durSel.value = String(rf.durMin); break; }
+        }
+      }
+      if (rf.depthMm != null) document.getElementById('rain-depth').value = rf.depthMm;
+      if (rf.freqMode) document.getElementById('freq-factor-mode').value = rf.freqMode;
+
+      // --- View settings ---
+      const vw = design.view || {};
+      if (vw.vscale) document.getElementById('vscale').value = vw.vscale;
+      if (vw.hscale) document.getElementById('hscale').value = vw.hscale;
+
+      // --- IFD data ---
+      if (design.ifd && design.ifd.durations && design.ifd.durations.length > 0) {
+        ifdData = design.ifd;
+        renderIFDTable();
+        setIFDStatus(`✓ IFD loaded from saved file (${ifdData.durations.length} durations)`, 'ok');
+      } else {
+        ifdData = null;
+        setIFDStatus('No IFD data in file — fetch from BOM or enter depth manually.', '');
+      }
+
+      // Sync nodeCounter so new nodes get unique IDs
+      const allIds = nodes.map(n => n.id).join(' ');
+      const nums = [...allIds.matchAll(/\d+/g)].map(m => parseInt(m[0]));
+      nodeCounter = nums.length > 0 ? Math.max(...nums) + 1 : 10;
+
+      // Re-render everything
+      updateIntensityField();
+      renderNodeList();
+      runCalc();
+
+      // Show a brief load confirmation in status bar
+      document.getElementById('sb-nodes').textContent = `Loaded: ${file.name}`;
+      setTimeout(() => updateStatusBar(), 3000);
+
+    } catch(err) {
+      alert('Failed to load file: ' + err.message);
+    }
+    // Reset input so same file can be re-loaded
+    event.target.value = '';
+  };
+  reader.readAsText(file);
+}
+
+
 (function initFromURLParams() {
   const params = new URLSearchParams(window.location.search);
   if (params.get('lat')) document.getElementById('lat').value = params.get('lat');
@@ -2152,4 +2277,4 @@ if (_initParams.get('lat') && _initParams.get('lng')) {
 }
 </script>
 </body>
-                                 </html>
+</html>
