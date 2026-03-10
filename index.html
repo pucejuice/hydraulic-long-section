@@ -543,32 +543,102 @@
     <!-- RAINFALL TAB -->
     <div class="tab-content" id="tab-rainfall">
       <div class="sidebar-scroll">
+        <div class="section-header">LOCATION</div>
+        <div class="field-row">
+          <div class="field">
+            <label>Latitude (°S negative)</label>
+            <input type="number" id="lat" value="-27.47" step="0.0001" placeholder="-27.4698">
+          </div>
+          <div class="field">
+            <label>Longitude (°E)</label>
+            <input type="number" id="lng" value="153.02" step="0.0001" placeholder="153.0251">
+          </div>
+        </div>
+        <button class="btn" style="width:100%;justify-content:center;margin-bottom:4px;" onclick="fetchIFD()">
+          ⬇ Fetch BOM IFD Data
+        </button>
+        <div id="ifd-status" style="font-size:10px;color:var(--muted);min-height:14px;margin-bottom:6px;"></div>
+
         <div class="section-header">DESIGN STORM</div>
         <div class="field-row">
           <div class="field">
-            <label>Rainfall Depth (mm)</label>
-            <input type="number" id="rain-depth" value="25" min="1" max="500" step="0.5">
+            <label>ARI / AEP</label>
+            <select id="ari-select" onchange="onARIChange()">
+              <option value="1">1 yr (63.2% AEP)</option>
+              <option value="2">2 yr (39.3% AEP)</option>
+              <option value="5">5 yr (18.1% AEP)</option>
+              <option value="10" selected>10 yr (9.5% AEP)</option>
+              <option value="20">20 yr (4.9% AEP)</option>
+              <option value="50">50 yr (2.0% AEP)</option>
+              <option value="100">100 yr (1.0% AEP)</option>
+            </select>
           </div>
           <div class="field">
             <label>Duration (min)</label>
-            <input type="number" id="rain-dur" value="5" min="1" max="1440" step="1">
+            <select id="rain-dur" onchange="onDurationChange()">
+              <option value="5" selected>5 min</option>
+              <option value="10">10 min</option>
+              <option value="15">15 min</option>
+              <option value="30">30 min</option>
+              <option value="60">60 min</option>
+              <option value="120">2 hr</option>
+              <option value="180">3 hr</option>
+              <option value="360">6 hr</option>
+              <option value="720">12 hr</option>
+              <option value="1440">24 hr</option>
+            </select>
           </div>
         </div>
-        <div class="field">
-          <label>Intensity (mm/hr) — derived</label>
-          <input type="number" id="rain-intensity" readonly style="color:var(--accent);cursor:default;">
+        <div class="field-row">
+          <div class="field">
+            <label>Rainfall Depth (mm) <span style="color:var(--muted);font-size:9px;">override</span></label>
+            <input type="number" id="rain-depth" value="25" min="1" max="500" step="0.5" oninput="updateIntensityField()">
+          </div>
+          <div class="field">
+            <label>Intensity (mm/hr)</label>
+            <input type="number" id="rain-intensity" readonly style="color:var(--accent);cursor:default;">
+          </div>
         </div>
-        <div class="section-header">RUNOFF METHOD</div>
-        <div class="field">
-          <label>Method</label>
-          <select id="runoff-method">
-            <option value="rational">Rational Method (Q = CiA/360)</option>
-          </select>
+
+        <div class="section-header">QUDM FREQUENCY FACTOR</div>
+        <div class="field-row">
+          <div class="field">
+            <label>Apply Freq. Factor (Fy)</label>
+            <select id="freq-factor-mode" onchange="updateIntensityField()">
+              <option value="on" selected>Yes — QUDM Table 7.05.2</option>
+              <option value="off">No — use C direct</option>
+            </select>
+          </div>
+          <div class="field">
+            <label>Fy (derived)</label>
+            <input type="number" id="freq-factor-val" readonly style="color:var(--accent3);cursor:default;">
+          </div>
         </div>
+        <div style="font-size:10px;color:var(--muted);line-height:1.7;padding:4px 0 6px;">
+          QUDM Table 7.05.2 — Fy applied to runoff coefficient C:<br>
+          <span style="font-family:'Share Tech Mono',mono;">
+            1yr=0.80 · 2yr=0.85 · 5yr=0.95<br>
+            10yr=1.00 · 20yr=1.05 · 50yr=1.15 · 100yr=1.20
+          </span>
+        </div>
+
+        <div class="section-header">IFD TABLE</div>
+        <div id="ifd-table-container">
+          <div style="color:var(--muted);font-size:11px;">Fetch BOM data to populate.</div>
+        </div>
+
+        <div class="section-header">PIPE SETTINGS</div>
         <div class="field">
           <label>Minimum Pipe Cover (mm)</label>
           <input type="number" id="min-cover" value="600" min="100" step="50">
         </div>
+        <div class="field">
+          <label>Method</label>
+          <select id="runoff-method">
+            <option value="rational">Rational Method Q = Fy·C·i·A / 3600 (m², mm/hr → L/s)</option>
+          </select>
+        </div>
+
         <div class="section-header">PIPE MATERIALS (AS3500.3)</div>
         <div style="font-size:11px;color:var(--muted);line-height:1.8;">
           <table style="width:100%;border-collapse:collapse;">
@@ -597,6 +667,7 @@
           <div style="color:var(--muted);font-size:12px;padding:8px 0;">Run calculation to see results.</div>
         </div>
         <div id="summary-warnings" style="margin-top:8px;"></div>
+        <div id="sizing-advisory"></div>
       </div>
     </div>
   </sidebar>
@@ -798,8 +869,8 @@ const PIPE_MATERIALS = {
 const STD_DIAMETERS = [90, 100, 150, 225, 300, 375, 450, 525, 600, 750, 900];
 
 let nodes = [
-  { id: 'P1', type: 'pit',    label: 'Pit 1',       chainage: 0,    gl: 102.500, il: 101.500, area: 0.05, Cf: 0.70 },
-  { id: 'P2', type: 'pit',    label: 'Pit 2',       chainage: 30,   gl: 102.200, il: 101.100, area: 0.08, Cf: 0.65 },
+  { id: 'P1', type: 'pit',    label: 'Pit 1',       chainage: 0,    gl: 102.500, il: 101.500, area: 500,  Cf: 0.70 },
+  { id: 'P2', type: 'pit',    label: 'Pit 2',       chainage: 30,   gl: 102.200, il: 101.100, area: 800,  Cf: 0.65 },
   { id: 'K1', type: 'outlet', label: 'Kerb Outlet',  chainage: 60,   gl: 101.800, il: 100.650, area: 0,    Cf: 0 },
 ];
 
@@ -843,38 +914,236 @@ function manningV(dia_mm, slope_permille, n) {
   return (1 / n) * Math.pow(R, 2/3) * Math.pow(S, 0.5);
 }
 
-// Rational method: Q = C * i * A / 360 (Q in L/s, i in mm/hr, A in ha)
-function rationalQ_Ls(C, i_mmhr, A_ha) {
-  return C * i_mmhr * A_ha / 360;
+// ============================================================
+// QUDM FREQUENCY FACTORS (Table 7.05.2)
+// ============================================================
+const QUDM_Fy = { 1: 0.80, 2: 0.85, 5: 0.95, 10: 1.00, 20: 1.05, 50: 1.15, 100: 1.20 };
+
+function getFrequencyFactor() {
+  const ari = parseInt(document.getElementById('ari-select').value) || 10;
+  // Interpolate for ARI values not in table
+  const keys = Object.keys(QUDM_Fy).map(Number).sort((a,b) => a-b);
+  if (QUDM_Fy[ari] !== undefined) return QUDM_Fy[ari];
+  // linear interpolation
+  for (let k = 0; k < keys.length - 1; k++) {
+    if (ari >= keys[k] && ari <= keys[k+1]) {
+      const t = (ari - keys[k]) / (keys[k+1] - keys[k]);
+      return QUDM_Fy[keys[k]] + t * (QUDM_Fy[keys[k+1]] - QUDM_Fy[keys[k]]);
+    }
+  }
+  return 1.0;
 }
 
-function getRainIntensity() {
-  const depth = parseFloat(document.getElementById('rain-depth').value) || 25;
-  const dur   = parseFloat(document.getElementById('rain-dur').value)   || 5;
-  return (depth / dur) * 60; // mm/hr
+// Rational method — CORRECTED formula:
+// Q (L/s) = Fy · C · i (mm/hr) · A (m²) / 3600
+// Derivation: Q(m³/s) = C · i(m/s) · A(m²) = C · (i_mmhr/3600000) · A_m2
+//             Q(L/s)  = Q(m³/s) × 1000 = C · i_mmhr · A_m2 / 3600
+function rationalQ_Ls(C, i_mmhr, A_m2, Fy) {
+  const fy = (Fy !== undefined) ? Fy : 1.0;
+  // Cap effective C·Fy at 1.0 (physical limit)
+  const Ceff = Math.min(C * fy, 1.0);
+  return Ceff * i_mmhr * A_m2 / 3600;
+}
+
+// ============================================================
+// IFD STATE & BOM FETCH
+// ============================================================
+let ifdData = null; // parsed BOM IFD table: { durations:[], aris:[], values:{dur:{ari:depth_mm}} }
+
+// BOM IFD duration keys in the response (minutes)
+const BOM_DUR_MAP = {
+  '1':1,'2':2,'3':3,'5':5,'10':10,'15':15,'20':20,'30':30,'45':45,
+  '60':60,'90':90,'120':120,'180':180,'270':270,'360':360,
+  '540':540,'720':720,'1080':1080,'1440':1440,'2160':2160,'2880':2880,
+  '4320':4320,'5760':5760,'7200':7200,'10080':10080
+};
+const BOM_ARI_KEYS = ['1','2','5','10','20','50','100','200'];
+
+async function fetchIFD() {
+  const lat = parseFloat(document.getElementById('lat').value);
+  const lng = parseFloat(document.getElementById('lng').value);
+  if (isNaN(lat) || isNaN(lng)) {
+    setIFDStatus('Enter valid latitude and longitude first.', 'warn'); return;
+  }
+  setIFDStatus('Fetching BOM IFD data…', '');
+  try {
+    const url = `https://www.bom.gov.au/water/designRainfalls/revised-ifd/services/downloadtable?all_design=&input_type=dd&points=%7B%22points%22%3A%5B%5B${lat}%2C${lng}%5D%5D%7D`;
+    const resp = await fetch(url);
+    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+    const text = await resp.text();
+    parseIFD(text);
+    setIFDStatus(`✓ IFD loaded for (${lat.toFixed(4)}, ${lng.toFixed(4)})`, 'ok');
+    renderIFDTable();
+    onARIChange();
+  } catch(e) {
+    // BOM may block direct fetch due to CORS — try a CORS proxy
+    try {
+      const lat2 = parseFloat(document.getElementById('lat').value);
+      const lng2 = parseFloat(document.getElementById('lng').value);
+      const bomUrl = `https://www.bom.gov.au/water/designRainfalls/revised-ifd/services/downloadtable?all_design=&input_type=dd&points=%7B%22points%22%3A%5B%5B${lat2}%2C${lng2}%5D%5D%7D`;
+      const proxyUrl = `https://corsproxy.io/?${encodeURIComponent(bomUrl)}`;
+      const resp2 = await fetch(proxyUrl);
+      if (!resp2.ok) throw new Error(`Proxy HTTP ${resp2.status}`);
+      const text2 = await resp2.text();
+      parseIFD(text2);
+      setIFDStatus(`✓ IFD loaded via proxy for (${lat2.toFixed(4)}, ${lng2.toFixed(4)})`, 'ok');
+      renderIFDTable();
+      onARIChange();
+    } catch(e2) {
+      setIFDStatus(`✗ Fetch failed: ${e2.message}. Enter depth manually above.`, 'err');
+    }
+  }
+}
+
+function setIFDStatus(msg, type) {
+  const el = document.getElementById('ifd-status');
+  el.textContent = msg;
+  el.style.color = type === 'ok' ? 'var(--accent)' : type === 'warn' ? 'var(--warn)' : type === 'err' ? 'var(--danger)' : 'var(--muted)';
+}
+
+function parseIFD(text) {
+  // BOM returns CSV or tab-delimited text. Try to parse it.
+  // Format: rows = durations, cols = ARIs, or transposed
+  // Typical BOM CSV: first col = duration label, subsequent cols = ARI depths
+  ifdData = { durations: [], aris: BOM_ARI_KEYS.map(Number), values: {} };
+
+  const lines = text.trim().split(/\r?\n/).filter(l => l.trim());
+  if (lines.length < 2) return;
+
+  // Detect separator
+  const sep = lines[0].includes('\t') ? '\t' : ',';
+  const headers = lines[0].split(sep).map(h => h.trim().replace(/"/g,''));
+
+  // Try to find ARI columns — BOM uses labels like "1 year", "1EY", "63.2%" etc.
+  // We'll try to match numbers
+  const ariColMap = {}; // ariValue -> colIndex
+  headers.forEach((h, ci) => {
+    const m = h.match(/(\d+)\s*(year|yr|EY|y)?/i);
+    if (m && ci > 0) {
+      const ariVal = parseInt(m[1]);
+      if (BOM_ARI_KEYS.includes(String(ariVal))) ariColMap[ariVal] = ci;
+    }
+  });
+
+  // Parse data rows
+  for (let ri = 1; ri < lines.length; ri++) {
+    const cells = lines[ri].split(sep).map(c => c.trim().replace(/"/g,''));
+    // First cell should be duration — try to extract minutes
+    const durLabel = cells[0];
+    let durMin = null;
+
+    // Try patterns: "5 min", "5m", "1 hour", "1h", "1440", "24 hr" etc.
+    const mMin = durLabel.match(/^(\d+\.?\d*)\s*(min|m\b)/i);
+    const mHr  = durLabel.match(/^(\d+\.?\d*)\s*(hr|h\b|hour)/i);
+    const mRaw = durLabel.match(/^(\d+)$/);
+    if (mMin) durMin = parseFloat(mMin[1]);
+    else if (mHr) durMin = parseFloat(mHr[1]) * 60;
+    else if (mRaw) {
+      const v = parseInt(mRaw[1]);
+      if (v <= 10080) durMin = v; // assume minutes if reasonable
+    }
+
+    if (durMin === null) continue;
+    ifdData.durations.push(durMin);
+    ifdData.values[durMin] = {};
+    Object.entries(ariColMap).forEach(([ari, ci]) => {
+      const val = parseFloat(cells[ci]);
+      if (!isNaN(val)) ifdData.values[durMin][ari] = val;
+    });
+  }
+}
+
+function getIFDDepth(durMin, ari) {
+  if (!ifdData || !ifdData.values[durMin]) return null;
+  const v = ifdData.values[durMin][ari];
+  return isNaN(v) ? null : v;
+}
+
+function renderIFDTable() {
+  const cont = document.getElementById('ifd-table-container');
+  if (!ifdData || ifdData.durations.length === 0) {
+    cont.innerHTML = '<div style="color:var(--muted);font-size:11px;">No IFD data available.</div>';
+    return;
+  }
+
+  // Show a compact table: rows = durations, cols = ARIs
+  const displayARIs = [1, 2, 5, 10, 20, 50, 100];
+  const displayDurs = ifdData.durations.filter(d => [5,10,15,30,60,120,360,720,1440].includes(d));
+
+  let html = `<div style="overflow-x:auto;"><table style="width:100%;border-collapse:collapse;font-size:10px;font-family:'Share Tech Mono',monospace;">
+    <thead><tr>
+      <th style="text-align:left;padding:2px 5px;color:var(--muted);border-bottom:1px solid var(--border);">Dur</th>
+      ${displayARIs.map(a => `<th style="padding:2px 4px;color:var(--accent3);border-bottom:1px solid var(--border);text-align:right;">${a}yr</th>`).join('')}
+    </tr></thead>
+    <tbody>`;
+
+  displayDurs.forEach(dur => {
+    const durLabel = dur < 60 ? `${dur}m` : `${dur/60}h`;
+    html += `<tr><td style="padding:1px 5px;color:var(--muted);">${durLabel}</td>`;
+    displayARIs.forEach(a => {
+      const v = getIFDDepth(dur, a);
+      html += `<td style="padding:1px 4px;text-align:right;">${v !== null ? v.toFixed(1) : '—'}</td>`;
+    });
+    html += '</tr>';
+  });
+  html += '</tbody></table></div>';
+  cont.innerHTML = html;
+}
+
+function onARIChange() {
+  const ari = parseInt(document.getElementById('ari-select').value) || 10;
+  const dur = parseInt(document.getElementById('rain-dur').value) || 5;
+  // Try to pull depth from IFD data
+  if (ifdData) {
+    const depth = getIFDDepth(dur, ari);
+    if (depth !== null) {
+      document.getElementById('rain-depth').value = depth.toFixed(2);
+    }
+  }
+  updateIntensityField();
+}
+
+function onDurationChange() {
+  onARIChange();
+}
+
+
+
+// Find the minimum standard diameter that carries Qdesign at the given slope/material
+// Returns { dia, Qfull, Vfull } or null if none in list works
+function sizePipe(Qdesign_Ls, slope_permille, material) {
+  const n_val = PIPE_MATERIALS[material]?.n || 0.013;
+  for (const d of STD_DIAMETERS) {
+    const Qf = manningQ(d, slope_permille, n_val) * 1000;
+    const Vf = manningV(d, slope_permille, n_val);
+    // Must carry flow and meet minimum velocity
+    if (Qf >= Qdesign_Ls && Vf >= 0.6) {
+      return { dia: d, Qfull: Qf, Vfull: Vf };
+    }
+  }
+  return null; // nothing in list works — slope too flat or flow too high
 }
 
 // ============================================================
 // CALCULATION ENGINE
 // ============================================================
 function runCalc() {
-  const i = getRainIntensity();
+  const i   = getRainIntensity();
+  const Fy  = document.getElementById('freq-factor-mode').value === 'on' ? getFrequencyFactor() : 1.0;
+  const ari = parseInt(document.getElementById('ari-select').value) || 10;
   const minCover = parseFloat(document.getElementById('min-cover').value) || 600;
 
-  // Build cumulative flow at each node (upstream to downstream traversal)
-  // Sort nodes by chainage
   const sortedNodes = [...nodes].sort((a, b) => a.chainage - b.chainage);
 
-  // Accumulate catchment flow at each node
+  // Accumulate catchment flow at each node (area in m²)
   const flowAtNode = {};
   for (const n of sortedNodes) {
     flowAtNode[n.id] = 0;
     if (n.type === 'pit' && n.area > 0) {
-      // direct contribution from this pit's catchment
-      flowAtNode[n.id] += rationalQ_Ls(n.Cf, i, n.area);
+      flowAtNode[n.id] += rationalQ_Ls(n.Cf, i, n.area, Fy);
     }
   }
-  // Cascade upstream flow downstream through pipe runs
+  // Cascade upstream → downstream
   for (const p of pipes) {
     const fromNode = getNode(p.from);
     const toNode   = getNode(p.to);
@@ -889,18 +1158,12 @@ function runCalc() {
     const slope = getPipeSlope(p);
     const Qfull = manningQ(p.dia, slope, n_val) * 1000; // L/s
     const Vfull = manningV(p.dia, slope, n_val);
-    const fromNode = getNode(p.from);
-    const Qdesign = flowAtNode[p.from] || 0; // flow entering this pipe
+    const Qdesign = flowAtNode[p.from] || 0;
     const ratio = Qfull > 0 ? Qdesign / Qfull : 999;
 
-    // Approximate partial-flow depth using Q/Qfull ratio (simplified)
-    // HGL at upstream node = IL + partial depth
     const D = p.dia / 1000;
-    let y_norm = D; // full pipe assumed if overloaded
+    let y_norm = D;
     if (ratio < 1) {
-      // Newton's method for y/D from Q/Qfull = f(y/D)
-      // Q/Qfull = (theta - sin(theta))^(5/3) / (2pi)^(2/3) * (pi)^(2/3) — simplified Chezy
-      // Use approximation: y/D ≈ 1 - cos(π * (Q/Qfull)^0.25) * 0.5 + 0.2*(Q/Qfull)
       const r = Math.min(ratio, 0.999);
       y_norm = D * (0.5 - 0.5 * Math.cos(Math.PI * Math.pow(r, 0.25)));
     }
@@ -917,30 +1180,152 @@ function runCalc() {
 
     const status = ratio > 1 ? 'OVER' : Vfull < 0.6 ? 'LOW_V' : 'OK';
 
+    // --- Pipe sizing advice ---
+    // Minimum adequate size
+    const minSized = sizePipe(Qdesign, slope, p.material);
+    // Check if one size down still works
+    const curIdx = STD_DIAMETERS.indexOf(p.dia);
+    const prevDia = curIdx > 0 ? STD_DIAMETERS[curIdx - 1] : null;
+    let canDownsize = false;
+    if (prevDia !== null) {
+      const Qf_prev = manningQ(prevDia, slope, n_val) * 1000;
+      const Vf_prev = manningV(prevDia, slope, n_val);
+      if (Qf_prev >= Qdesign && Vf_prev >= 0.6) canDownsize = true;
+    }
+    const needsUpsize = ratio > 1;
+    const sizing = {
+      minDia: minSized ? minSized.dia : null,
+      canDownsize,
+      downsizeTo: canDownsize ? prevDia : null,
+      needsUpsize,
+      upsizeTo: needsUpsize && minSized ? minSized.dia : null,
+    };
+
     return {
-      pipe: p,
-      slope, Qfull: Qfull, Vfull,
+      pipe: p, slope, Qfull, Vfull,
       Qdesign, ratio,
       hgl_us, hgl_ds,
       cover_us_mm: cover_us !== null ? cover_us * 1000 : null,
       cover_ds_mm: cover_ds !== null ? cover_ds * 1000 : null,
-      coverOk, status,
-      y_norm
+      coverOk, status, y_norm, sizing
     };
   });
 
-  calcResults = { pipeResults, flowAtNode, i };
+  calcResults = { pipeResults, flowAtNode, i, Fy, ari };
 
   renderResults(calcResults);
   renderDataTable(calcResults);
+  renderSizingAdvisory(calcResults);
   renderLongSection();
   updateStatusBar();
   switchTab('results', document.querySelectorAll('.tab-btn')[2]);
 }
 
+function getRainIntensity() {
+  const depth = parseFloat(document.getElementById('rain-depth').value) || 25;
+  const dur   = parseFloat(document.getElementById('rain-dur').value)   || 5;
+  return (depth / dur) * 60; // mm/hr
+}
+
 function updateIntensityField() {
   const i = getRainIntensity();
   document.getElementById('rain-intensity').value = i.toFixed(2);
+  // Update Fy display
+  const fy = getFrequencyFactor();
+  const ffMode = document.getElementById('freq-factor-mode').value;
+  document.getElementById('freq-factor-val').value = ffMode === 'on' ? fy.toFixed(3) : '1.000';
+}
+
+// ============================================================
+// PIPE SIZING ADVISORY POPUP / PANEL
+// ============================================================
+function renderSizingAdvisory(res) {
+  const existing = document.getElementById('sizing-advisory');
+  if (!existing) return;
+
+  const advItems = [];
+  for (const r of res.pipeResults) {
+    const s = r.sizing;
+    if (s.needsUpsize && s.upsizeTo) {
+      advItems.push({
+        type: 'upsize',
+        pipe: `${r.pipe.from}→${r.pipe.to}`,
+        current: r.pipe.dia,
+        suggest: s.upsizeTo,
+        reason: `Q/Qf=${r.ratio.toFixed(2)} — surcharging`,
+        pipeRef: r.pipe,
+      });
+    } else if (s.canDownsize && s.downsizeTo) {
+      advItems.push({
+        type: 'downsize',
+        pipe: `${r.pipe.from}→${r.pipe.to}`,
+        current: r.pipe.dia,
+        suggest: s.downsizeTo,
+        reason: `Q/Qf=${r.ratio.toFixed(2)} — could be smaller`,
+        pipeRef: r.pipe,
+      });
+    }
+  }
+
+  if (advItems.length === 0) {
+    existing.innerHTML = '';
+    return;
+  }
+
+  const rows = advItems.map((a, idx) => {
+    const isUp = a.type === 'upsize';
+    const color = isUp ? 'var(--danger)' : 'var(--accent)';
+    const icon = isUp ? '▲' : '▼';
+    const pipeIdx = pipes.indexOf(a.pipeRef);
+    return `<div style="display:flex;align-items:center;gap:8px;padding:5px 0;border-bottom:1px solid var(--border);">
+      <span style="color:${color};font-size:13px;">${icon}</span>
+      <span style="flex:1;font-size:11px;"><b style="color:var(--accent3);">${a.pipe}</b>
+        &nbsp;Ø${a.current}→<b style="color:${color};">Ø${a.suggest}</b>
+        <span style="color:var(--muted);font-size:10px;"> ${a.reason}</span>
+      </span>
+      <button onclick="applySizing(${pipeIdx},${a.suggest})"
+        style="background:${color};color:#000;border:none;border-radius:3px;padding:3px 8px;cursor:pointer;font-family:'Rajdhani',sans-serif;font-size:11px;font-weight:700;white-space:nowrap;">
+        Apply Ø${a.suggest}
+      </button>
+    </div>`;
+  }).join('');
+
+  existing.innerHTML = `
+    <div style="margin-top:10px;padding:8px;background:var(--surface2);border:1px solid var(--border);border-radius:4px;">
+      <div style="font-size:10px;font-weight:700;letter-spacing:1.5px;color:var(--muted);text-transform:uppercase;margin-bottom:6px;">
+        ⬡ Pipe Sizing Advisory
+      </div>
+      ${rows}
+      <div style="margin-top:6px;display:flex;gap:6px;">
+        <button onclick="applyAllSizing()" style="flex:1;background:var(--accent);color:#000;border:none;border-radius:3px;padding:5px;cursor:pointer;font-family:'Rajdhani',sans-serif;font-size:12px;font-weight:700;">
+          Apply All Suggestions
+        </button>
+      </div>
+    </div>`;
+}
+
+function applySizing(pipeIdx, newDia) {
+  if (pipes[pipeIdx]) {
+    pipes[pipeIdx].dia = newDia;
+    renderNodeList();
+    runCalc();
+  }
+}
+
+function applyAllSizing() {
+  if (!calcResults) return;
+  for (const r of calcResults.pipeResults) {
+    const s = r.sizing;
+    const pipeIdx = pipes.indexOf(r.pipe);
+    if (pipeIdx < 0) continue;
+    if (s.needsUpsize && s.upsizeTo) {
+      pipes[pipeIdx].dia = s.upsizeTo;
+    } else if (s.canDownsize && s.downsizeTo) {
+      pipes[pipeIdx].dia = s.downsizeTo;
+    }
+  }
+  renderNodeList();
+  runCalc();
 }
 
 // ============================================================
@@ -991,8 +1376,8 @@ function renderNodeList() {
         ${n.type === 'pit' ? `
         <div class="field-row">
           <div class="field">
-            <label>Area (ha)</label>
-            <input type="number" value="${n.area}" step="0.001" min="0" onchange="updateNode('${n.id}','area',+this.value)">
+            <label>Area (m²)</label>
+            <input type="number" value="${n.area}" step="1" min="0" onchange="updateNode('${n.id}','area',+this.value)">
           </div>
           <div class="field">
             <label>Fraction Imp. (C)</label>
@@ -1034,7 +1419,7 @@ function renderResults(res) {
 
   let html = `<table class="results-table">
     <thead><tr>
-      <th>Pipe</th><th>Q des<br>(L/s)</th><th>Q full<br>(L/s)</th><th>Q/Qf</th><th>V<br>(m/s)</th><th>S<br>‰</th><th>Cov<br>US mm</th><th>Status</th>
+      <th>Pipe</th><th>Q des<br>(L/s)</th><th>Q full<br>(L/s)</th><th>Q/Qf</th><th>V<br>(m/s)</th><th>S<br>‰</th><th>Cov<br>US mm</th><th>Rec. Ø</th><th>Status</th>
     </tr></thead><tbody>`;
 
   let warnHtml = '';
@@ -1042,6 +1427,12 @@ function renderResults(res) {
     const statusClass = r.status === 'OK' ? 'result-ok' : r.status === 'OVER' ? 'result-fail' : 'result-warn';
     const coverClass = r.cover_us_mm !== null && r.cover_us_mm < parseFloat(document.getElementById('min-cover').value)
       ? 'result-fail' : 'result-ok';
+    const s = r.sizing;
+    let recDia = '—';
+    let recCls = '';
+    if (s.needsUpsize && s.upsizeTo) { recDia = `▲ Ø${s.upsizeTo}`; recCls = 'result-fail'; }
+    else if (s.canDownsize && s.downsizeTo) { recDia = `▼ Ø${s.downsizeTo}`; recCls = 'result-ok'; }
+    else if (!s.needsUpsize) { recDia = `✓`; recCls = 'result-ok'; }
     html += `<tr>
       <td>${r.pipe.from}→${r.pipe.to}</td>
       <td>${fmt(r.Qdesign,1)}</td>
@@ -1050,6 +1441,7 @@ function renderResults(res) {
       <td class="${r.Vfull < 0.6 ? 'result-warn' : 'result-ok'}">${fmt(r.Vfull,2)}</td>
       <td>${fmt(r.slope,2)}</td>
       <td class="${coverClass}">${r.cover_us_mm !== null ? Math.round(r.cover_us_mm) : '—'}</td>
+      <td class="${recCls}">${recDia}</td>
       <td class="${statusClass}">${r.status}</td>
     </tr>`;
     if (r.status === 'OVER') warnHtml += `<div style="color:var(--danger);font-size:11px;padding:3px 0;">⚠ ${r.pipe.from}→${r.pipe.to}: Pipe surcharging (Q/Qf=${fmt(r.ratio,2)})</div>`;
@@ -1062,7 +1454,8 @@ function renderResults(res) {
 }
 
 // ============================================================
-// DATA TABLE (12d-style schedule below long section)
+// DATA TABLE — one row per pipe, pit data merged into same row
+// Columns: Pit label | Chainage | GL | IL | Depth | Cover | Area | C | → | Pipe | Mat | n | Len | Slope | Qdes | Qfull | Q/Qf | Vfull | HGL_US | HGL_DS | Status
 // ============================================================
 function renderDataTable(res) {
   const wrap = document.getElementById('data-table-wrap');
@@ -1071,162 +1464,119 @@ function renderDataTable(res) {
     return;
   }
 
-  // Build interleaved column sequence: node | pipe | node | pipe | ... | node
   const sortedNodes = [...nodes].sort((a, b) => a.chainage - b.chainage);
-  const cols = [];  // {type:'node'|'pipe', data: node|pipeResult}
-  for (let i = 0; i < sortedNodes.length; i++) {
-    cols.push({ type: 'node', data: sortedNodes[i] });
-    if (i < sortedNodes.length - 1) {
-      // find pipe connecting this node to the next
-      const pr = res.pipeResults.find(r =>
-        r.pipe.from === sortedNodes[i].id && r.pipe.to === sortedNodes[i+1].id
-      );
-      if (pr) cols.push({ type: 'pipe', data: pr });
-      else cols.push({ type: 'pipe', data: null });
-    }
-  }
-
   const minCover = parseFloat(document.getElementById('min-cover').value) || 600;
 
-  // Row definitions: [rowLabel, fn(col) -> {val, cls}]
-  const rows = [
-    { label: 'Chainage (m)',
-      fn: c => c.type === 'node'
-        ? { val: c.data.chainage.toFixed(1), cls: '' }
-        : { val: '→', cls: '' }
-    },
-    { label: 'GL (m AHD)',
-      fn: c => c.type === 'node'
-        ? { val: c.data.gl.toFixed(3), cls: '' }
-        : { val: '—', cls: '' }
-    },
-    { label: 'IL (m AHD)',
-      fn: c => c.type === 'node'
-        ? { val: c.data.il.toFixed(3), cls: 'val-ok' }
-        : { val: '—', cls: '' }
-    },
-    { label: 'Cover (mm)',
-      fn: c => {
-        if (c.type !== 'node') return { val: '—', cls: '' };
-        // use max cover (pipe above IL)
-        const n = c.data;
-        const conPipe = res.pipeResults.find(r => r.pipe.from === n.id || r.pipe.to === n.id);
-        if (!conPipe) return { val: '—', cls: '' };
-        const D = conPipe.pipe.dia / 1000;
-        const cov = Math.round((n.gl - n.il - D) * 1000);
-        return { val: cov + ' mm', cls: cov < minCover ? 'val-fail' : 'val-ok' };
-      }
-    },
-    { label: 'Depth to IL (m)',
-      fn: c => c.type === 'node'
-        ? { val: (c.data.gl - c.data.il).toFixed(3), cls: '' }
-        : { val: '—', cls: '' }
-    },
-    { label: 'Pipe Dia (mm)',
-      fn: c => c.type === 'pipe' && c.data
-        ? { val: 'Ø' + c.data.pipe.dia, cls: '' }
-        : { val: '—', cls: '' }
-    },
-    { label: 'Material',
-      fn: c => c.type === 'pipe' && c.data
-        ? { val: c.data.pipe.material, cls: '' }
-        : { val: '—', cls: '' }
-    },
-    { label: 'n (Manning)',
-      fn: c => c.type === 'pipe' && c.data
-        ? { val: (PIPE_MATERIALS[c.data.pipe.material]?.n || 0.013).toFixed(3), cls: '' }
-        : { val: '—', cls: '' }
-    },
-    { label: 'Length (m)',
-      fn: c => {
-        if (c.type !== 'pipe' || !c.data) return { val: '—', cls: '' };
-        const fromN = getNode(c.data.pipe.from), toN = getNode(c.data.pipe.to);
-        if (!fromN || !toN) return { val: '—', cls: '' };
-        return { val: Math.abs(toN.chainage - fromN.chainage).toFixed(1), cls: '' };
-      }
-    },
-    { label: 'Slope (‰)',
-      fn: c => c.type === 'pipe' && c.data
-        ? { val: c.data.slope.toFixed(2) + '‰', cls: c.data.slope < 5 ? 'val-warn' : '' }
-        : { val: '—', cls: '' }
-    },
-    { label: 'Q design (L/s)',
-      fn: c => c.type === 'pipe' && c.data
-        ? { val: c.data.Qdesign.toFixed(2), cls: '' }
-        : { val: '—', cls: '' }
-    },
-    { label: 'Q full (L/s)',
-      fn: c => c.type === 'pipe' && c.data
-        ? { val: c.data.Qfull.toFixed(2), cls: '' }
-        : { val: '—', cls: '' }
-    },
-    { label: 'Q/Qfull',
-      fn: c => {
-        if (c.type !== 'pipe' || !c.data) return { val: '—', cls: '' };
-        const r = c.data.ratio;
-        return { val: r.toFixed(3), cls: r > 1 ? 'val-fail' : r > 0.85 ? 'val-warn' : 'val-ok' };
-      }
-    },
-    { label: 'V full (m/s)',
-      fn: c => c.type === 'pipe' && c.data
-        ? { val: c.data.Vfull.toFixed(2), cls: c.data.Vfull < 0.6 ? 'val-warn' : 'val-ok' }
-        : { val: '—', cls: '' }
-    },
-    { label: 'HGL US (m)',
-      fn: c => c.type === 'pipe' && c.data && c.data.hgl_us !== null
-        ? { val: c.data.hgl_us.toFixed(3), cls: '' }
-        : { val: '—', cls: '' }
-    },
-    { label: 'HGL DS (m)',
-      fn: c => c.type === 'pipe' && c.data && c.data.hgl_ds !== null
-        ? { val: c.data.hgl_ds.toFixed(3), cls: '' }
-        : { val: '—', cls: '' }
-    },
-    { label: 'Catchment (ha)',
-      fn: c => c.type === 'node'
-        ? { val: c.data.area > 0 ? c.data.area.toFixed(3) : '—', cls: '' }
-        : { val: '—', cls: '' }
-    },
-    { label: 'Fraction Imp.',
-      fn: c => c.type === 'node' && c.data.area > 0
-        ? { val: c.data.Cf.toFixed(2), cls: '' }
-        : { val: '—', cls: '' }
-    },
-    { label: 'Status',
-      fn: c => {
-        if (c.type !== 'pipe' || !c.data) return { val: '—', cls: '' };
-        const s = c.data.status;
-        return { val: s, cls: s === 'OK' ? 'val-ok' : s === 'OVER' ? 'val-fail' : 'val-warn' };
-      }
-    },
-  ];
+  const thead = `<thead><tr>
+    <th class="row-label" style="min-width:80px;">Node</th>
+    <th>Ch (m)</th>
+    <th>GL (m)</th>
+    <th>IL (m)</th>
+    <th>Depth (m)</th>
+    <th>Cover (mm)</th>
+    <th>Area (m²)</th>
+    <th>C</th>
+    <th>Q node<br>(L/s)</th>
+    <th class="col-pipe">Pipe</th>
+    <th class="col-pipe">Mat.</th>
+    <th class="col-pipe">n</th>
+    <th class="col-pipe">Len (m)</th>
+    <th class="col-pipe">Slope ‰</th>
+    <th class="col-pipe">Q des<br>(L/s)</th>
+    <th class="col-pipe">Q full<br>(L/s)</th>
+    <th class="col-pipe">Q/Qf</th>
+    <th class="col-pipe">V full<br>(m/s)</th>
+    <th class="col-pipe">HGL US<br>(m)</th>
+    <th class="col-pipe">HGL DS<br>(m)</th>
+    <th class="col-pipe">Status</th>
+  </tr></thead>`;
 
-  // Build header row
-  let thCells = `<th class="row-label">Parameter</th>`;
-  cols.forEach(c => {
-    const isNode = c.type === 'node';
-    const lbl = isNode
-      ? c.data.label
-      : (c.data ? `${c.data.pipe.from}→${c.data.pipe.to}` : '?');
-    thCells += `<th class="${isNode ? 'col-node' : 'col-pipe'}">${lbl}</th>`;
-  });
-
-  // Build data rows
   let bodyRows = '';
-  rows.forEach(row => {
-    let tds = `<td class="row-label">${row.label}</td>`;
-    cols.forEach(c => {
-      const cell = row.fn(c);
-      tds += `<td class="${c.type === 'pipe' ? 'col-pipe ' : ''}${cell.cls || ''}">${cell.val}</td>`;
-    });
-    bodyRows += `<tr>${tds}</tr>`;
-  });
+
+  // For each pipe, show the upstream node data + the pipe data on the same row
+  for (let pi = 0; pi < pipes.length; pi++) {
+    const p = pipes[pi];
+    const fromN = getNode(p.from);
+    const toN   = getNode(p.to);
+    const pr = res.pipeResults.find(r => r.pipe === p);
+    if (!fromN || !toN || !pr) continue;
+
+    const D = p.dia / 1000;
+    const cov_us = Math.round((fromN.gl - fromN.il - D) * 1000);
+    const coverCls = cov_us < minCover ? 'val-fail' : 'val-ok';
+    const ratioC = pr.ratio > 1 ? 'val-fail' : pr.ratio > 0.85 ? 'val-warn' : 'val-ok';
+    const velC   = pr.Vfull < 0.6 ? 'val-warn' : 'val-ok';
+    const statC  = pr.status === 'OK' ? 'val-ok' : pr.status === 'OVER' ? 'val-fail' : 'val-warn';
+    const slopeC = pr.slope < 3.3 ? 'val-warn' : '';
+
+    const qNode = res.flowAtNode[fromN.id] || 0;
+    const n_val = PIPE_MATERIALS[p.material]?.n || 0.013;
+    const pipeLen = Math.abs(toN.chainage - fromN.chainage).toFixed(1);
+
+    // Sizing badge
+    const s = pr.sizing;
+    let sizeBadge = '';
+    if (s.needsUpsize && s.upsizeTo) {
+      sizeBadge = `<span style="color:var(--danger);font-size:9px;margin-left:3px;">▲Ø${s.upsizeTo}</span>`;
+    } else if (s.canDownsize && s.downsizeTo) {
+      sizeBadge = `<span style="color:var(--accent);font-size:9px;margin-left:3px;">▼Ø${s.downsizeTo}</span>`;
+    }
+
+    const isOutlet = fromN.type === 'outlet';
+    bodyRows += `<tr>
+      <td class="row-label" style="color:${isOutlet?'var(--accent2)':'var(--accent3)'};">${fromN.label}</td>
+      <td>${fromN.chainage.toFixed(1)}</td>
+      <td>${fromN.gl.toFixed(3)}</td>
+      <td class="val-ok">${fromN.il.toFixed(3)}</td>
+      <td>${(fromN.gl - fromN.il).toFixed(3)}</td>
+      <td class="${coverCls}">${cov_us}</td>
+      <td>${fromN.area > 0 ? fromN.area.toFixed(0) : '—'}</td>
+      <td>${fromN.Cf > 0 ? fromN.Cf.toFixed(2) : '—'}</td>
+      <td>${qNode.toFixed(2)}</td>
+      <td class="col-pipe" style="color:var(--accent3);font-weight:bold;">Ø${p.dia}${sizeBadge}</td>
+      <td class="col-pipe">${p.material}</td>
+      <td class="col-pipe">${n_val.toFixed(3)}</td>
+      <td class="col-pipe">${pipeLen}</td>
+      <td class="col-pipe ${slopeC}">${pr.slope.toFixed(2)}</td>
+      <td class="col-pipe">${pr.Qdesign.toFixed(2)}</td>
+      <td class="col-pipe">${pr.Qfull.toFixed(2)}</td>
+      <td class="col-pipe ${ratioC}">${pr.ratio.toFixed(3)}</td>
+      <td class="col-pipe ${velC}">${pr.Vfull.toFixed(2)}</td>
+      <td class="col-pipe">${pr.hgl_us !== null ? pr.hgl_us.toFixed(3) : '—'}</td>
+      <td class="col-pipe">${pr.hgl_ds !== null ? pr.hgl_ds.toFixed(3) : '—'}</td>
+      <td class="col-pipe ${statC}">${pr.status}</td>
+    </tr>`;
+  }
+
+  // Last node (outlet) — no downstream pipe, show node data only
+  const lastNode = sortedNodes[sortedNodes.length - 1];
+  if (lastNode) {
+    const lastPipe = pipes[pipes.length - 1];
+    const lastD = lastPipe ? lastPipe.dia / 1000 : 0;
+    const cov_last = lastD > 0 ? Math.round((lastNode.gl - lastNode.il - lastD) * 1000) : null;
+    const coverCls = cov_last !== null && cov_last < minCover ? 'val-fail' : 'val-ok';
+    bodyRows += `<tr>
+      <td class="row-label" style="color:var(--accent2);">${lastNode.label}</td>
+      <td>${lastNode.chainage.toFixed(1)}</td>
+      <td>${lastNode.gl.toFixed(3)}</td>
+      <td class="val-ok">${lastNode.il.toFixed(3)}</td>
+      <td>${(lastNode.gl - lastNode.il).toFixed(3)}</td>
+      <td class="${coverCls}">${cov_last !== null ? cov_last : '—'}</td>
+      <td colspan="3" style="color:var(--muted);font-style:italic;">— outlet —</td>
+      <td colspan="12" style="color:var(--muted);"></td>
+    </tr>`;
+  }
 
   wrap.innerHTML = `
     <div class="data-table-inner">
-      <div class="dt-section-label">LONG SECTION SCHEDULE &nbsp;|&nbsp; i = ${res.i.toFixed(1)} mm/hr &nbsp;|&nbsp; Rational Method Q = CiA/360</div>
+      <div class="dt-section-label">LONG SECTION SCHEDULE &nbsp;|&nbsp;
+        ${res.ari}yr ARI &nbsp;|&nbsp; i = ${res.i.toFixed(1)} mm/hr &nbsp;|&nbsp;
+        Fy = ${res.Fy ? res.Fy.toFixed(3) : '1.000'} &nbsp;|&nbsp; Q = Fy·C·i·A / 3600 (m², mm/hr → L/s) &nbsp;|&nbsp;
+        <span style="color:var(--accent);">▼ downsize available</span> &nbsp;
+        <span style="color:var(--danger);">▲ upsize required</span>
+      </div>
       <table class="dt">
-        <thead><tr>${thCells}</tr></thead>
+        ${thead}
         <tbody>${bodyRows}</tbody>
       </table>
     </div>`;
@@ -1467,7 +1817,7 @@ function addPit() {
     chainage: lastNode ? lastNode.chainage + 20 : 0,
     gl: lastNode ? lastNode.gl - 0.2 : 102,
     il: lastNode ? lastNode.il - 0.3 : 101,
-    area: 0.05, Cf: 0.7
+    area: 500, Cf: 0.7
   });
   // Add pipe if there are prior nodes
   if (nodes.length >= 2) {
@@ -1690,7 +2040,7 @@ function exportDXF() {
       { label: 'V full (m/s)',      fn: c => c.type === 'pipe' && c.data ? c.data.Vfull.toFixed(2) : '' },
       { label: 'HGL US (m AHD)',    fn: c => c.type === 'pipe' && c.data && c.data.hgl_us !== null ? c.data.hgl_us.toFixed(3) : '' },
       { label: 'HGL DS (m AHD)',    fn: c => c.type === 'pipe' && c.data && c.data.hgl_ds !== null ? c.data.hgl_ds.toFixed(3) : '' },
-      { label: 'Catchment (ha)',    fn: c => c.type === 'node' && c.data.area > 0 ? c.data.area.toFixed(3) : '' },
+      { label: 'Catchment (m2)',    fn: c => c.type === 'node' && c.data.area > 0 ? c.data.area.toFixed(0) : '' },
       { label: 'Fraction Imp.',     fn: c => c.type === 'node' && c.data.area > 0 ? c.data.Cf.toFixed(2) : '' },
       { label: 'Status',            fn: c => c.type === 'pipe' && c.data ? c.data.status : '' },
     ];
@@ -1759,8 +2109,29 @@ function exportDXF() {
 // ============================================================
 // INIT
 // ============================================================
+(function initFromURLParams() {
+  const params = new URLSearchParams(window.location.search);
+  if (params.get('lat')) document.getElementById('lat').value = params.get('lat');
+  if (params.get('lng')) document.getElementById('lng').value = params.get('lng');
+  if (params.get('ari')) {
+    const ariSel = document.getElementById('ari-select');
+    for (const opt of ariSel.options) {
+      if (opt.value === params.get('ari')) { ariSel.value = params.get('ari'); break; }
+    }
+  }
+  if (params.get('dur')) {
+    const durSel = document.getElementById('rain-dur');
+    for (const opt of durSel.options) {
+      if (opt.value === params.get('dur')) { durSel.value = params.get('dur'); break; }
+    }
+  }
+  if (params.get('depth')) document.getElementById('rain-depth').value = params.get('depth');
+})();
+
 document.getElementById('rain-depth').addEventListener('input', updateIntensityField);
-document.getElementById('rain-dur').addEventListener('input', updateIntensityField);
+document.getElementById('ari-select').addEventListener('change', onARIChange);
+document.getElementById('rain-dur').addEventListener('change', onDurationChange);
+document.getElementById('freq-factor-mode').addEventListener('change', updateIntensityField);
 document.getElementById('vscale').addEventListener('change', renderLongSection);
 document.getElementById('hscale').addEventListener('change', renderLongSection);
 
@@ -1771,7 +2142,14 @@ window.addEventListener('resize', () => {
 
 updateIntensityField();
 renderNodeList();
-runCalc();
+
+// Auto-fetch IFD if lat/lng were provided via URL params
+const _initParams = new URLSearchParams(window.location.search);
+if (_initParams.get('lat') && _initParams.get('lng')) {
+  fetchIFD().then(() => runCalc());
+} else {
+  runCalc();
+}
 </script>
 </body>
-  </html>
+                                 </html>
