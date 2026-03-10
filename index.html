@@ -1,444 +1,1777 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
-<meta charset="utf-8">
-<title>Stormwater Long Section Designer</title>
-<script src="https://d3js.org/d3.v7.min.js"></script>
-
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Pipe Long Section Calculator</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.8.5/d3.min.js"></script>
 <style>
+  @import url('https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Rajdhani:wght@400;500;600;700&display=swap');
 
-body{
-background:#111;
-color:#ddd;
-font-family:Arial;
-margin:0;
-}
+  :root {
+    --bg: #0d1117;
+    --surface: #161b22;
+    --surface2: #1c2128;
+    --border: #30363d;
+    --accent: #00d4aa;
+    --accent2: #ff6b35;
+    --accent3: #4facfe;
+    --text: #e6edf3;
+    --muted: #7d8590;
+    --danger: #f85149;
+    --warn: #d29922;
+    --pipe-col: #4facfe;
+    --ground-col: #8b6914;
+    --hgl-col: #00d4aa;
+    --invert-col: #ff6b35;
+  }
 
-#toolbar{
-background:#222;
-padding:10px;
-border-bottom:1px solid #444;
-}
+  * { box-sizing: border-box; margin: 0; padding: 0; }
 
-button,input,select{
-background:#333;
-color:#ddd;
-border:1px solid #555;
-padding:5px;
-margin:3px;
-}
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'Rajdhani', sans-serif;
+    font-size: 14px;
+    height: 100vh;
+    overflow: hidden;
+    display: grid;
+    grid-template-rows: 44px 1fr;
+  }
 
-table{
-border-collapse:collapse;
-width:100%;
-font-size:12px;
-margin-top:6px;
-}
+  /* HEADER */
+  header {
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    padding: 0 16px;
+    z-index: 10;
+  }
+  .logo {
+    font-size: 16px;
+    font-weight: 700;
+    color: var(--accent);
+    letter-spacing: 2px;
+    text-transform: uppercase;
+  }
+  .logo span { color: var(--text); }
+  .header-btns { margin-left: auto; display: flex; gap: 8px; }
+  .btn {
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    color: var(--text);
+    padding: 5px 14px;
+    border-radius: 4px;
+    cursor: pointer;
+    font-family: 'Rajdhani', sans-serif;
+    font-size: 13px;
+    font-weight: 600;
+    letter-spacing: 0.5px;
+    transition: all 0.15s;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .btn:hover { border-color: var(--accent); color: var(--accent); }
+  .btn.primary { background: var(--accent); color: #000; border-color: var(--accent); }
+  .btn.primary:hover { background: #00f5c4; }
+  .btn.danger { border-color: var(--danger); color: var(--danger); }
+  .btn.danger:hover { background: var(--danger); color: #fff; }
 
-th,td{
-border:1px solid #444;
-padding:4px;
-text-align:center;
-}
+  /* MAIN LAYOUT */
+  main {
+    display: grid;
+    grid-template-columns: 320px 1fr;
+    overflow: hidden;
+  }
 
-svg{background:#181818}
+  /* SIDEBAR */
+  sidebar {
+    background: var(--surface);
+    border-right: 1px solid var(--border);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+  .sidebar-tabs {
+    display: flex;
+    border-bottom: 1px solid var(--border);
+    flex-shrink: 0;
+  }
+  .tab-btn {
+    flex: 1;
+    padding: 9px 0;
+    background: none;
+    border: none;
+    color: var(--muted);
+    cursor: pointer;
+    font-family: 'Rajdhani', sans-serif;
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    transition: all 0.15s;
+    border-bottom: 2px solid transparent;
+  }
+  .tab-btn.active { color: var(--accent); border-bottom-color: var(--accent); }
+  .tab-content { display: none; flex-direction: column; overflow: hidden; flex: 1; }
+  .tab-content.active { display: flex; }
 
-.pipe{stroke:#66aaff;stroke-width:3}
-.obvert{stroke:#3388ff;stroke-dasharray:5,3}
-.water{stroke:#00ffff;stroke-width:2}
-.hgl{stroke:#ffaa00;stroke-width:2;stroke-dasharray:6,4}
-.ground{stroke:#44aa44;stroke-width:2}
+  .sidebar-scroll {
+    overflow-y: auto;
+    flex: 1;
+    padding: 12px;
+  }
+  .sidebar-scroll::-webkit-scrollbar { width: 4px; }
+  .sidebar-scroll::-webkit-scrollbar-track { background: var(--bg); }
+  .sidebar-scroll::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
 
-.grid{stroke:#333;stroke-width:1}
+  /* SECTIONS */
+  .section-header {
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    color: var(--muted);
+    margin-bottom: 8px;
+    margin-top: 14px;
+    padding-bottom: 4px;
+    border-bottom: 1px solid var(--border);
+  }
+  .section-header:first-child { margin-top: 0; }
 
-.pit{stroke:#aaa;fill:none}
+  /* FORMS */
+  .field { margin-bottom: 8px; }
+  .field label {
+    display: block;
+    font-size: 11px;
+    color: var(--muted);
+    margin-bottom: 3px;
+    font-weight: 600;
+    letter-spacing: 0.5px;
+  }
+  .field input, .field select {
+    width: 100%;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    color: var(--text);
+    padding: 5px 8px;
+    font-family: 'Share Tech Mono', monospace;
+    font-size: 12px;
+    transition: border-color 0.15s;
+  }
+  .field input:focus, .field select:focus {
+    outline: none;
+    border-color: var(--accent);
+  }
+  .field input.error { border-color: var(--danger); }
+  .field-row { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+  .field-row3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 6px; }
 
-.handle{fill:#ff4444;cursor:pointer}
+  /* NODE CARDS */
+  .node-card {
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    margin-bottom: 8px;
+    overflow: hidden;
+    transition: border-color 0.15s;
+  }
+  .node-card.selected { border-color: var(--accent); }
+  .node-card-header {
+    display: flex;
+    align-items: center;
+    padding: 8px 10px;
+    cursor: pointer;
+    gap: 8px;
+    user-select: none;
+  }
+  .node-badge {
+    width: 22px;
+    height: 22px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 10px;
+    font-weight: 700;
+    flex-shrink: 0;
+  }
+  .badge-pit { background: rgba(79,172,254,0.2); color: var(--accent3); border: 1px solid var(--accent3); }
+  .badge-outlet { background: rgba(255,107,53,0.2); color: var(--accent2); border: 1px solid var(--accent2); }
+  .node-name { font-weight: 600; font-size: 13px; flex: 1; }
+  .node-type-tag {
+    font-size: 10px;
+    padding: 1px 6px;
+    border-radius: 10px;
+    font-weight: 600;
+    letter-spacing: 0.5px;
+  }
+  .tag-pit { background: rgba(79,172,254,0.15); color: var(--accent3); }
+  .tag-outlet { background: rgba(255,107,53,0.15); color: var(--accent2); }
+  .node-card-body { display: none; padding: 10px; border-top: 1px solid var(--border); }
+  .node-card-body.open { display: block; }
+  .node-del-btn {
+    background: none;
+    border: none;
+    color: var(--muted);
+    cursor: pointer;
+    padding: 2px;
+    transition: color 0.15s;
+    font-size: 14px;
+  }
+  .node-del-btn:hover { color: var(--danger); }
 
-.label{fill:#ccc;font-size:11px}
+  /* PIPE TABLE */
+  .pipe-table { width: 100%; border-collapse: collapse; margin-top: 8px; }
+  .pipe-table th {
+    font-size: 10px;
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    font-weight: 600;
+    text-align: left;
+    padding: 4px 6px;
+    border-bottom: 1px solid var(--border);
+  }
+  .pipe-table td { padding: 4px 6px; vertical-align: middle; }
+  .pipe-table tr:nth-child(even) td { background: rgba(255,255,255,0.02); }
+  .pipe-table input, .pipe-table select {
+    width: 100%;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 3px;
+    color: var(--text);
+    padding: 3px 5px;
+    font-family: 'Share Tech Mono', monospace;
+    font-size: 11px;
+  }
+  .pipe-table input:focus, .pipe-table select:focus {
+    outline: none;
+    border-color: var(--accent);
+  }
 
-.outlet{background:#003366}
+  /* RESULTS PANEL */
+  .results-table { width: 100%; border-collapse: collapse; }
+  .results-table th {
+    font-size: 10px;
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    font-weight: 600;
+    text-align: right;
+    padding: 4px 6px;
+    border-bottom: 1px solid var(--border);
+  }
+  .results-table th:first-child { text-align: left; }
+  .results-table td {
+    font-family: 'Share Tech Mono', monospace;
+    font-size: 11px;
+    padding: 4px 6px;
+    text-align: right;
+    border-bottom: 1px solid rgba(48,54,61,0.4);
+  }
+  .results-table td:first-child { text-align: left; color: var(--accent3); font-family: 'Rajdhani', sans-serif; font-weight: 600; }
+  .result-ok { color: var(--accent); }
+  .result-warn { color: var(--warn); }
+  .result-fail { color: var(--danger); }
 
+  /* CANVAS AREA */
+  .canvas-area {
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    background: var(--bg);
+  }
+  .canvas-toolbar {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 12px;
+    border-bottom: 1px solid var(--border);
+    background: var(--surface);
+    flex-shrink: 0;
+    flex-wrap: wrap;
+  }
+  .canvas-toolbar label {
+    font-size: 11px;
+    color: var(--muted);
+    font-weight: 600;
+    letter-spacing: 0.5px;
+    white-space: nowrap;
+  }
+  .canvas-toolbar input, .canvas-toolbar select {
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    color: var(--text);
+    padding: 4px 8px;
+    font-family: 'Share Tech Mono', monospace;
+    font-size: 12px;
+    width: 80px;
+  }
+  .canvas-toolbar input:focus, .canvas-toolbar select:focus {
+    outline: none;
+    border-color: var(--accent);
+  }
+  .divider { width: 1px; height: 20px; background: var(--border); margin: 0 4px; }
+  .legend { display: flex; gap: 12px; margin-left: auto; align-items: center; }
+  .legend-item { display: flex; align-items: center; gap: 5px; font-size: 11px; color: var(--muted); }
+  .legend-line { width: 20px; height: 2px; }
+
+  #long-section-svg {
+    flex: 1;
+    min-height: 0;
+    min-height: 180px;
+  }
+
+  /* Status bar */
+  .status-bar {
+    background: var(--surface);
+    border-top: 1px solid var(--border);
+    padding: 3px 12px;
+    display: flex;
+    gap: 16px;
+    font-size: 11px;
+    color: var(--muted);
+    font-family: 'Share Tech Mono', monospace;
+    flex-shrink: 0;
+  }
+  .status-bar span { color: var(--accent); }
+
+  /* Tooltip */
+  #tooltip {
+    position: fixed;
+    background: var(--surface);
+    border: 1px solid var(--accent);
+    border-radius: 4px;
+    padding: 6px 10px;
+    font-size: 11px;
+    font-family: 'Share Tech Mono', monospace;
+    pointer-events: none;
+    opacity: 0;
+    transition: opacity 0.1s;
+    z-index: 999;
+    max-width: 200px;
+    line-height: 1.6;
+  }
+  #tooltip.visible { opacity: 1; }
+
+  /* Status badge inline */
+  .inline-stat {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 11px;
+    font-family: 'Share Tech Mono', monospace;
+  }
+
+  /* Add node buttons */
+  .add-btns { display: flex; gap: 6px; margin-bottom: 12px; }
+  .add-btn {
+    flex: 1;
+    padding: 7px;
+    border-radius: 4px;
+    border: 1px dashed var(--border);
+    background: none;
+    color: var(--muted);
+    cursor: pointer;
+    font-family: 'Rajdhani', sans-serif;
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: 0.5px;
+    transition: all 0.15s;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 4px;
+  }
+  .add-btn:hover { border-color: var(--accent); color: var(--accent); background: rgba(0,212,170,0.05); }
+
+  select option { background: var(--surface2); }
+
+  /* SCROLLBAR */
+  ::-webkit-scrollbar { width: 5px; height: 5px; }
+  ::-webkit-scrollbar-track { background: var(--bg); }
+  ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+
+  /* D3 SVG styles */
+  .ground-line { stroke: var(--ground-col); stroke-width: 1.5; fill: none; stroke-dasharray: 6 3; }
+  .pipe-line { stroke: var(--pipe-col); stroke-width: 3; fill: none; }
+  .hgl-line { stroke: var(--hgl-col); stroke-width: 1.5; fill: none; stroke-dasharray: 4 2; }
+  .pit-symbol { fill: var(--surface2); stroke: var(--accent3); stroke-width: 1.5; }
+  .outlet-symbol { fill: rgba(255,107,53,0.2); stroke: var(--accent2); stroke-width: 1.5; }
+  .grid-line { stroke: var(--border); stroke-width: 0.5; }
+  .axis-text { fill: var(--muted); font-family: 'Share Tech Mono', monospace; font-size: 10px; }
+  .label-text { fill: var(--text); font-family: 'Rajdhani', sans-serif; font-size: 11px; font-weight: 600; }
+  .invert-line { stroke: var(--invert-col); stroke-width: 1; stroke-dasharray: 3 2; }
+  .pipe-label { fill: var(--accent3); font-family: 'Share Tech Mono', monospace; font-size: 9px; }
+  .cover-label { fill: var(--muted); font-family: 'Share Tech Mono', monospace; font-size: 9px; }
+  .overflow-warn { fill: var(--danger) !important; }
+
+  /* DATA TABLE BELOW LONG SECTION */
+  .data-table-wrap {
+    flex-shrink: 0;
+    overflow-x: auto;
+    border-top: 2px solid var(--border);
+    background: var(--surface);
+  }
+  .data-table-wrap::-webkit-scrollbar { height: 5px; }
+  .data-table-inner {
+    min-width: 100%;
+    white-space: nowrap;
+  }
+  .dt-section-label {
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 1.5px;
+    text-transform: uppercase;
+    color: var(--muted);
+    padding: 3px 10px 0;
+    border-bottom: 1px solid var(--border);
+    background: var(--surface2);
+  }
+  table.dt {
+    border-collapse: collapse;
+    width: 100%;
+    font-family: 'Share Tech Mono', monospace;
+    font-size: 10px;
+  }
+  table.dt th {
+    background: var(--surface2);
+    color: var(--muted);
+    font-size: 9px;
+    letter-spacing: 0.8px;
+    text-transform: uppercase;
+    padding: 3px 8px;
+    text-align: center;
+    border-right: 1px solid var(--border);
+    border-bottom: 1px solid var(--border);
+    font-family: 'Rajdhani', sans-serif;
+    font-weight: 700;
+    white-space: nowrap;
+  }
+  table.dt th.row-label {
+    text-align: left;
+    min-width: 90px;
+    position: sticky;
+    left: 0;
+    z-index: 2;
+    background: var(--surface2);
+  }
+  table.dt td {
+    padding: 2px 8px;
+    text-align: center;
+    border-right: 1px solid rgba(48,54,61,0.5);
+    color: var(--text);
+    font-size: 10px;
+    line-height: 1.5;
+  }
+  table.dt td.row-label {
+    text-align: left;
+    color: var(--muted);
+    font-family: 'Rajdhani', sans-serif;
+    font-weight: 600;
+    font-size: 10px;
+    background: var(--surface);
+    position: sticky;
+    left: 0;
+    z-index: 1;
+    border-right: 2px solid var(--border);
+    padding-left: 10px;
+    letter-spacing: 0.5px;
+    text-transform: uppercase;
+  }
+  table.dt tr:nth-child(even) td { background: rgba(255,255,255,0.015); }
+  table.dt tr:nth-child(even) td.row-label { background: var(--surface); }
+  table.dt td.val-ok   { color: var(--accent); }
+  table.dt td.val-warn { color: var(--warn); }
+  table.dt td.val-fail { color: var(--danger); }
+  table.dt td.col-node { color: var(--accent3); font-weight: bold; border-right: 2px solid var(--border); }
+  table.dt td.col-pipe { color: var(--muted); font-style: italic; border-right: 2px solid rgba(79,172,254,0.3); background: rgba(79,172,254,0.04) !important; }
+  table.dt th.col-pipe { border-right: 2px solid rgba(79,172,254,0.3); background: rgba(79,172,254,0.08) !important; }
+  table.dt th.col-node { border-right: 2px solid var(--border); }
 </style>
 </head>
-
 <body>
 
-<div id="toolbar">
+<header>
+  <div class="logo">PIPE<span>CALC</span></div>
+  <div style="font-size:11px;color:var(--muted);letter-spacing:1px;">LONG SECTION — AS3500.3</div>
+  <div class="header-btns">
+    <button class="btn" onclick="exportDXF()">⬇ Export DXF</button>
+    <button class="btn primary" onclick="runCalc()">▶ Calculate</button>
+  </div>
+</header>
 
-Rainfall Depth (mm)
-<input id="rainDepth" type="number" value="20">
+<main>
+  <sidebar>
+    <div class="sidebar-tabs">
+      <button class="tab-btn active" onclick="switchTab('nodes',this)">NODES</button>
+      <button class="tab-btn" onclick="switchTab('rainfall',this)">RAINFALL</button>
+      <button class="tab-btn" onclick="switchTab('results',this)">RESULTS</button>
+    </div>
 
-Duration (min)
-<input id="duration" type="number" value="5">
+    <!-- NODES TAB -->
+    <div class="tab-content active" id="tab-nodes">
+      <div class="sidebar-scroll">
+        <div class="add-btns">
+          <button class="add-btn" onclick="addPit()">＋ Add Pit</button>
+          <button class="add-btn" onclick="addOutlet()">＋ Add Outlet</button>
+        </div>
+        <div id="node-list"></div>
+        <div class="section-header" style="margin-top:6px;">PIPE RUNS</div>
+        <div id="pipe-list">
+          <table class="pipe-table" id="pipe-table">
+            <thead>
+              <tr>
+                <th>From→To</th>
+                <th>Dia (mm)</th>
+                <th>Material</th>
+                <th>Slope ‰</th>
+              </tr>
+            </thead>
+            <tbody id="pipe-tbody"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
 
-<button onclick="addPit()">Add Pit</button>
-<button onclick="deletePit()">Delete Pit</button>
+    <!-- RAINFALL TAB -->
+    <div class="tab-content" id="tab-rainfall">
+      <div class="sidebar-scroll">
+        <div class="section-header">DESIGN STORM</div>
+        <div class="field-row">
+          <div class="field">
+            <label>Rainfall Depth (mm)</label>
+            <input type="number" id="rain-depth" value="25" min="1" max="500" step="0.5">
+          </div>
+          <div class="field">
+            <label>Duration (min)</label>
+            <input type="number" id="rain-dur" value="5" min="1" max="1440" step="1">
+          </div>
+        </div>
+        <div class="field">
+          <label>Intensity (mm/hr) — derived</label>
+          <input type="number" id="rain-intensity" readonly style="color:var(--accent);cursor:default;">
+        </div>
+        <div class="section-header">RUNOFF METHOD</div>
+        <div class="field">
+          <label>Method</label>
+          <select id="runoff-method">
+            <option value="rational">Rational Method (Q = CiA/360)</option>
+          </select>
+        </div>
+        <div class="field">
+          <label>Minimum Pipe Cover (mm)</label>
+          <input type="number" id="min-cover" value="600" min="100" step="50">
+        </div>
+        <div class="section-header">PIPE MATERIALS (AS3500.3)</div>
+        <div style="font-size:11px;color:var(--muted);line-height:1.8;">
+          <table style="width:100%;border-collapse:collapse;">
+            <tr><td style="padding:2px 4px;color:var(--accent3);">uPVC SN8</td><td style="padding:2px 4px;font-family:'Share Tech Mono',mono;text-align:right;">n=0.010</td></tr>
+            <tr><td style="padding:2px 4px;color:var(--accent3);">uPVC SN4</td><td style="padding:2px 4px;font-family:'Share Tech Mono',mono;text-align:right;">n=0.010</td></tr>
+            <tr><td style="padding:2px 4px;color:var(--accent3);">HDPE</td><td style="padding:2px 4px;font-family:'Share Tech Mono',mono;text-align:right;">n=0.011</td></tr>
+            <tr><td style="padding:2px 4px;color:var(--accent3);">VC (Vitrified Clay)</td><td style="padding:2px 4px;font-family:'Share Tech Mono',mono;text-align:right;">n=0.013</td></tr>
+            <tr><td style="padding:2px 4px;color:var(--accent3);">Concrete</td><td style="padding:2px 4px;font-family:'Share Tech Mono',mono;text-align:right;">n=0.013</td></tr>
+            <tr><td style="padding:2px 4px;color:var(--accent3);">RC Pipe</td><td style="padding:2px 4px;font-family:'Share Tech Mono',mono;text-align:right;">n=0.013</td></tr>
+            <tr><td style="padding:2px 4px;color:var(--accent3);">Cast Iron</td><td style="padding:2px 4px;font-family:'Share Tech Mono',mono;text-align:right;">n=0.012</td></tr>
+            <tr><td style="padding:2px 4px;color:var(--accent3);">GRP</td><td style="padding:2px 4px;font-family:'Share Tech Mono',mono;text-align:right;">n=0.010</td></tr>
+          </table>
+        </div>
+        <div class="section-header">STANDARD PIPE DIAMETERS (mm)</div>
+        <div style="font-size:11px;color:var(--muted);font-family:'Share Tech Mono',monospace;line-height:1.8;">
+          90, 100, 150, 225, 300, 375, 450, 525, 600, 750, 900
+        </div>
+      </div>
+    </div>
 
-<button onclick="autosize()">Auto Size Pipes</button>
-<button onclick="saveJSON()">Save</button>
-<button onclick="loadJSON()">Load</button>
-<button onclick="exportDXF()">Export DXF</button>
+    <!-- RESULTS TAB -->
+    <div class="tab-content" id="tab-results">
+      <div class="sidebar-scroll">
+        <div class="section-header">PIPE HYDRAULICS</div>
+        <div id="results-content">
+          <div style="color:var(--muted);font-size:12px;padding:8px 0;">Run calculation to see results.</div>
+        </div>
+        <div id="summary-warnings" style="margin-top:8px;"></div>
+      </div>
+    </div>
+  </sidebar>
 
-</div>
+  <div class="canvas-area">
+    <div class="canvas-toolbar">
+      <label>V-SCALE</label>
+      <select id="vscale">
+        <option value="5">1:5</option>
+        <option value="10" selected>1:10</option>
+        <option value="20">1:20</option>
+        <option value="50">1:50</option>
+        <option value="100">1:100</option>
+      </select>
+      <div class="divider"></div>
+      <label>H-SCALE</label>
+      <select id="hscale">
+        <option value="100">1:100</option>
+        <option value="200" selected>1:200</option>
+        <option value="500">1:500</option>
+        <option value="1000">1:1000</option>
+      </select>
+      <div class="divider"></div>
+      <button class="btn" style="padding:4px 10px;font-size:11px;" onclick="renderLongSection()">⟳ Redraw</button>
+      <div class="legend">
+        <div class="legend-item"><div class="legend-line" style="background:var(--ground-col);border-top:2px dashed var(--ground-col);"></div>Ground</div>
+        <div class="legend-item"><div class="legend-line" style="background:var(--pipe-col);"></div>Pipe IL</div>
+        <div class="legend-item"><div class="legend-line" style="background:var(--hgl-col);border-top:2px dashed var(--hgl-col);"></div>HGL</div>
+        <div class="legend-item"><div class="legend-line" style="background:var(--invert-col);border-top:1px dashed var(--invert-col);"></div>Soffit</div>
+      </div>
+    </div>
+    <svg id="long-section-svg"></svg>
+    <div class="data-table-wrap" id="data-table-wrap">
+      <div class="data-table-inner">
+        <div class="dt-section-label">LONG SECTION SCHEDULE — run calculation to populate</div>
+      </div>
+    </div>
+    <div class="status-bar" id="status-bar">
+      <span id="sb-nodes">Nodes: 3</span>
+      <span id="sb-pipes">Pipes: 2</span>
+      <span id="sb-q">Q: —</span>
+      <span id="sb-v">V: —</span>
+    </div>
+  </div>
+</main>
 
-<svg id="chart" width="1200" height="450"></svg>
-
-<h3>Pits</h3>
-<table id="pitTable"></table>
-
-<h3>Pipes</h3>
-<table id="pipeTable"></table>
-
-<h3>Hydraulic Results</h3>
-<table id="resultTable"></table>
+<div id="tooltip"></div>
 
 <script>
-
-const width=1200
-const height=450
-
-const svg=d3.select("#chart")
-
-const scaleX=d3.scaleLinear().range([80,width-40])
-const scaleY=d3.scaleLinear().range([height-50,40])
-
-const diameters=[0.09,0.1,0.15,0.225,0.3,0.375,0.45]
-
-let pits=[
-{id:0,type:"outlet",chain:0,ground:10,invert:8,area:0,imp:0},
-{id:1,type:"junction",chain:40,ground:9.8,invert:7.8,area:400,imp:0.7},
-{id:2,type:"junction",chain:80,ground:9.7,invert:7.6,area:300,imp:0.6}
-]
-
-let pipes=[
-{from:2,to:1,d:0.225,n:0.013},
-{from:1,to:0,d:0.225,n:0.013}
-]
-
-function runoff(area,imp){
-
-let depth=document.getElementById("rainDepth").value/1000
-let dur=document.getElementById("duration").value*60
-
-return area*imp*depth/dur
-
+// ============================================================
+// SDXF LIBRARY (inline)
+// ============================================================
+const NL = String.fromCharCode(10);
+function _point(x, index = 0) { return x.map((val, i) => `${(i + 1) * 10 + index}${NL}${val}`).join(NL); }
+function _points(p) { return p.map((pt, i) => _point(pt, i)); }
+function calculate_end_point(start_point, angle_degrees, length) {
+  const [x_start, y_start] = start_point;
+  const angle_radians = angle_degrees * (Math.PI / 180);
+  return [x_start + length * Math.cos(angle_radians), y_start + length * Math.sin(angle_radians)];
+}
+class Entity {
+  constructor({ color = 256, extrusion = null, layer = '0', lineType = null, lineTypeScale = null, lineWeight = null, thickness = null, parent = null } = {}) {
+    this.color = color; this.extrusion = extrusion; this.layer = layer; this.lineType = lineType;
+    this.lineTypeScale = lineTypeScale; this.lineWeight = lineWeight; this.thickness = thickness; this.parent = parent;
+  }
+  _common() {
+    const parent = this.parent || this;
+    const lines = ['5', '1', '8', parent.layer];
+    if (parent.extrusion !== null) lines.push(_point(parent.extrusion, 200));
+    if (parent.lineType !== null) lines.push('6', parent.lineType);
+    if (parent.lineWeight !== null) lines.push('370', parent.lineWeight);
+    if (parent.lineTypeScale !== null) lines.push('48', parent.lineTypeScale);
+    if (parent.thickness !== null) lines.push('39', parent.thickness);
+    if (parent.color !== null) lines.push('62', parent.color);
+    return lines.join(NL);
+  }
+}
+class Collection {
+  constructor(entities = []) { this.entities = [...entities]; }
+  append(entity) { this.entities.push(entity); }
+  toString() { return this.entities.map(e => e.toString()).join(NL); }
+}
+class Layer {
+  constructor({ name = 'pydxf', color = 7, lineType = 'continuous', flag = 64 } = {}) {
+    this.name = name.toUpperCase(); this.color = color; this.lineType = lineType; this.flag = flag;
+  }
+  toString() { return ['0', 'LAYER', '2', this.name, '70', this.flag, '62', this.color, '6', this.lineType].join(NL); }
+}
+class LineType {
+  constructor({ name = 'continuous', description = 'Solid line', elements = [], flag = 64 } = {}) {
+    this.name = name.toUpperCase(); this.description = description; this.elements = [...elements]; this.flag = flag;
+  }
+  toString() { return ['0', 'LTYPE', '2', this.name, '70', this.flag, '3', this.description, '72', '65', '73', this.elements.length, '40', '0.0'].join(NL); }
+}
+class Style {
+  constructor({ name = 'standard', flag = 0, height = 0, widthFactor = 40, obliqueAngle = 50, mirror = 0, lastHeight = 1, font = 'arial.ttf', bigFont = '' } = {}) {
+    this.name = name.toUpperCase(); this.flag = flag; this.height = height; this.widthFactor = widthFactor;
+    this.obliqueAngle = obliqueAngle; this.mirror = mirror; this.lastHeight = lastHeight; this.font = font.toUpperCase(); this.bigFont = bigFont.toUpperCase();
+  }
+  toString() { return ['0', 'STYLE', '2', this.name, '70', this.flag, '40', this.flag, '41', this.widthFactor, '50', this.obliqueAngle, '71', this.mirror, '42', this.lastHeight, '3', this.font, '4', this.bigFont].join(NL); }
+}
+class Line extends Entity {
+  constructor(points, commonOptions = {}) { super(commonOptions); this.points = points; }
+  toString() { return ['0', 'LINE', this._common(), _points(this.points).join(NL)].join(NL); }
+}
+class Text extends Entity {
+  constructor(text = '', point = [0, 0, 0], { alignment = null, flag = null, height = 1, justifyhor = null, justifyver = null, rotation = null, obliqueAngle = null, style = null, xscale = null, ...common } = {}) {
+    super(common); this.text = text; this.point = point; this.alignment = alignment; this.flag = flag; this.height = height;
+    this.justifyhor = justifyhor; this.justifyver = justifyver; this.rotation = rotation; this.obliqueAngle = obliqueAngle; this.style = style; this.xscale = xscale;
+  }
+  toString() {
+    const lines = [];
+    if (this.justifyhor !== null) {
+      const rot = this.rotation || 0;
+      const justifiedpoint = calculate_end_point(this.point, rot + 90, this.text.length * 0.75 * this.height);
+      lines.push('0', 'TEXT', this._common(), _point(justifiedpoint), '40', this.height, '1', this.text);
+    } else {
+      lines.push('0', 'TEXT', this._common(), _point(this.point), '40', this.height, '1', this.text);
+    }
+    if (this.rotation !== null) lines.push('50', this.rotation);
+    if (this.xscale !== null) lines.push('41', this.xscale);
+    if (this.obliqueAngle !== null) lines.push('51', this.obliqueAngle);
+    if (this.style !== null) lines.push('7', this.style);
+    if (this.flag !== null) lines.push('71', this.flag);
+    if (this.justifyhor !== null) lines.push('72', `\t${this.justifyhor}`, '11', this.point[0], '21', this.point[1], '31', '0');
+    if (this.alignment !== null) lines.push(_point(this.alignment, 1));
+    if (this.justifyver !== null) lines.push('73', this.justifyver);
+    return lines.join(NL);
+  }
+}
+class Circle extends Entity {
+  constructor(center = [0, 0, 0], radius = 1, commonOptions = {}) { super(commonOptions); this.center = center; this.radius = radius; }
+  toString() { return ['0', 'CIRCLE', this._common(), _point(this.center), '40', this.radius].join(NL); }
+}
+class Rectangle extends Entity {
+  constructor({ point = [0, 0, 0], width = 1, height = 1, solid = null, line = 1, ...commonOptions } = {}) {
+    super(commonOptions); this.point = point; this.width = width; this.height = height; this.solid = solid; this.line = line;
+  }
+  toString() {
+    const lines = [];
+    const p0 = this.point;
+    const p1 = [p0[0] + this.width, p0[1], p0[2] || 0];
+    const p2 = [p0[0] + this.width, p0[1] + this.height, p0[2] || 0];
+    const p3 = [p0[0], p0[1] + this.height, p0[2] || 0];
+    const pts = [p0, p1, p2, p3, p0];
+    if (this.line) {
+      for (let i = 0; i < 4; i++) lines.push(new Line([pts[i], pts[i + 1]], { parent: this }).toString());
+    }
+    return lines.join(NL);
+  }
+}
+class Drawing extends Collection {
+  constructor({ insbase = [0,0,0], extmin = [0,0], extmax = [0,0], layers = [new Layer()], linetypes = [new LineType()], styles = [new Style()], views = [], blocks = [], entities = [] } = {}) {
+    super(entities); this.insbase = insbase; this.extmin = extmin; this.extmax = extmax;
+    this.layers = [...layers]; this.linetypes = [...linetypes]; this.styles = [...styles]; this.views = [...views]; this.blocks = [...blocks];
+    this._acadver = ['9', '$ACADVER', '1', 'AC1006'].join(NL);
+    this._HEADER_POINTS = ['insbase', 'extmin', 'extmax'];
+  }
+  _name(x) { return ['9', `$${x.toUpperCase()}`].join(NL); }
+  _drawingPoint(name, x) { return [this._name(name), _point(x)].join(NL); }
+  _section(name, items) {
+    const xstr = items && items.length > 0 ? NL + items.join(NL) : '';
+    return ['0', 'SECTION', '2', name.toUpperCase() + xstr, '0', 'ENDSEC'].join(NL);
+  }
+  _table(name, items) {
+    const xstr = items && items.length > 0 ? NL + items.join(NL) : '';
+    return ['0', 'TABLE', '2', name.toUpperCase(), '70', items.length.toString() + xstr, '0', 'ENDTAB'].join(NL);
+  }
+  toString() {
+    const headerItems = [this._acadver];
+    for (const attr of this._HEADER_POINTS) headerItems.push(this._drawingPoint(attr, this[attr]));
+    const header = this._section('header', headerItems);
+    const tablesItems = [
+      this._table('ltype', this.linetypes.map(x => x.toString())),
+      this._table('layer', this.layers.map(x => x.toString())),
+      this._table('style', this.styles.map(x => x.toString())),
+      this._table('view', this.views.map(x => x.toString()))
+    ];
+    const tables = this._section('tables', tablesItems);
+    const blocks = this._section('blocks', this.blocks.map(x => x.toString()));
+    const entities = this._section('entities', this.entities.map(x => x.toString()));
+    return [header, tables, blocks, entities, '0', 'EOF', ''].join(NL);
+  }
 }
 
-function areaPartial(d,y){
+// ============================================================
+// APP STATE
+// ============================================================
+const PIPE_MATERIALS = {
+  'uPVC SN8':        { n: 0.010, label: 'uPVC SN8' },
+  'uPVC SN4':        { n: 0.010, label: 'uPVC SN4' },
+  'HDPE':            { n: 0.011, label: 'HDPE' },
+  'VC':              { n: 0.013, label: 'Vitrified Clay' },
+  'Concrete':        { n: 0.013, label: 'Concrete' },
+  'RC Pipe':         { n: 0.013, label: 'RC Pipe' },
+  'Cast Iron':       { n: 0.012, label: 'Cast Iron' },
+  'GRP':             { n: 0.010, label: 'GRP' },
+};
+const STD_DIAMETERS = [90, 100, 150, 225, 300, 375, 450, 525, 600, 750, 900];
 
-let r=d/2
-let theta=2*Math.acos((r-y)/r)
+let nodes = [
+  { id: 'P1', type: 'pit',    label: 'Pit 1',       chainage: 0,    gl: 102.500, il: 101.500, area: 0.05, Cf: 0.70 },
+  { id: 'P2', type: 'pit',    label: 'Pit 2',       chainage: 30,   gl: 102.200, il: 101.100, area: 0.08, Cf: 0.65 },
+  { id: 'K1', type: 'outlet', label: 'Kerb Outlet',  chainage: 60,   gl: 101.800, il: 100.650, area: 0,    Cf: 0 },
+];
 
-return r*r*(theta-Math.sin(theta))/2
+let pipes = [
+  { from: 'P1', to: 'P2', dia: 225, material: 'uPVC SN8', slopeMode: 'il' },
+  { from: 'P2', to: 'K1', dia: 300, material: 'uPVC SN8', slopeMode: 'il' },
+];
 
+let calcResults = null;
+let selectedNode = null;
+
+// ============================================================
+// UTILITY
+// ============================================================
+function fmt(v, dec=3) { return typeof v === 'number' ? v.toFixed(dec) : '—'; }
+function getNode(id) { return nodes.find(n => n.id === id); }
+function getPipeSlope(p) {
+  const a = getNode(p.from), b = getNode(p.to);
+  if (!a || !b) return 0;
+  const dL = b.chainage - a.chainage;
+  const dH = a.il - b.il;
+  return dL > 0 ? dH / dL * 1000 : 0; // ‰
 }
 
-function wettedPerimeter(d,y){
-
-let r=d/2
-let theta=2*Math.acos((r-y)/r)
-
-return r*theta
-
+// Manning's full-pipe capacity
+function manningQ(dia_mm, slope_permille, n) {
+  const D = dia_mm / 1000;
+  const S = slope_permille / 1000;
+  if (S <= 0 || D <= 0) return 0;
+  const A = Math.PI * D * D / 4;
+  const R = D / 4;
+  return (1 / n) * A * Math.pow(R, 2/3) * Math.pow(S, 0.5);
 }
 
-function manning(A,R,S,n){
-
-return (1/n)*A*Math.pow(R,2/3)*Math.sqrt(S)
-
+// Manning's full-pipe velocity
+function manningV(dia_mm, slope_permille, n) {
+  const D = dia_mm / 1000;
+  const S = slope_permille / 1000;
+  if (S <= 0 || D <= 0) return 0;
+  const R = D / 4;
+  return (1 / n) * Math.pow(R, 2/3) * Math.pow(S, 0.5);
 }
 
-function solveDepth(pipe,Q){
-
-let d=pipe.d
-
-for(let y=0.001;y<=d;y+=d/200){
-
-let A=areaPartial(d,y)
-let P=wettedPerimeter(d,y)
-let R=A/P
-
-let S=(pits[pipe.from].invert-pits[pipe.to].invert)/
-Math.abs(pits[pipe.to].chain-pits[pipe.from].chain)
-
-let q=manning(A,R,S,pipe.n)
-
-if(q>=Q)return y
-
+// Rational method: Q = C * i * A / 360 (Q in L/s, i in mm/hr, A in ha)
+function rationalQ_Ls(C, i_mmhr, A_ha) {
+  return C * i_mmhr * A_ha / 360;
 }
 
-return d
-
+function getRainIntensity() {
+  const depth = parseFloat(document.getElementById('rain-depth').value) || 25;
+  const dur   = parseFloat(document.getElementById('rain-dur').value)   || 5;
+  return (depth / dur) * 60; // mm/hr
 }
 
-function compute(){
+// ============================================================
+// CALCULATION ENGINE
+// ============================================================
+function runCalc() {
+  const i = getRainIntensity();
+  const minCover = parseFloat(document.getElementById('min-cover').value) || 600;
 
-let flows={}
+  // Build cumulative flow at each node (upstream to downstream traversal)
+  // Sort nodes by chainage
+  const sortedNodes = [...nodes].sort((a, b) => a.chainage - b.chainage);
 
-pits.forEach(p=>{
-flows[p.id]=runoff(p.area,p.imp)
-})
+  // Accumulate catchment flow at each node
+  const flowAtNode = {};
+  for (const n of sortedNodes) {
+    flowAtNode[n.id] = 0;
+    if (n.type === 'pit' && n.area > 0) {
+      // direct contribution from this pit's catchment
+      flowAtNode[n.id] += rationalQ_Ls(n.Cf, i, n.area);
+    }
+  }
+  // Cascade upstream flow downstream through pipe runs
+  for (const p of pipes) {
+    const fromNode = getNode(p.from);
+    const toNode   = getNode(p.to);
+    if (fromNode && toNode) {
+      flowAtNode[toNode.id] = (flowAtNode[toNode.id] || 0) + (flowAtNode[fromNode.id] || 0);
+    }
+  }
 
-pipes.forEach(p=>{
+  // Pipe-by-pipe hydraulics
+  const pipeResults = pipes.map(p => {
+    const n_val = PIPE_MATERIALS[p.material]?.n || 0.013;
+    const slope = getPipeSlope(p);
+    const Qfull = manningQ(p.dia, slope, n_val) * 1000; // L/s
+    const Vfull = manningV(p.dia, slope, n_val);
+    const fromNode = getNode(p.from);
+    const Qdesign = flowAtNode[p.from] || 0; // flow entering this pipe
+    const ratio = Qfull > 0 ? Qdesign / Qfull : 999;
 
-flows[p.to]+=flows[p.from]
+    // Approximate partial-flow depth using Q/Qfull ratio (simplified)
+    // HGL at upstream node = IL + partial depth
+    const D = p.dia / 1000;
+    let y_norm = D; // full pipe assumed if overloaded
+    if (ratio < 1) {
+      // Newton's method for y/D from Q/Qfull = f(y/D)
+      // Q/Qfull = (theta - sin(theta))^(5/3) / (2pi)^(2/3) * (pi)^(2/3) — simplified Chezy
+      // Use approximation: y/D ≈ 1 - cos(π * (Q/Qfull)^0.25) * 0.5 + 0.2*(Q/Qfull)
+      const r = Math.min(ratio, 0.999);
+      y_norm = D * (0.5 - 0.5 * Math.cos(Math.PI * Math.pow(r, 0.25)));
+    }
 
-})
+    const fromN = getNode(p.from);
+    const toN   = getNode(p.to);
+    const hgl_us = fromN ? fromN.il + y_norm : null;
+    const hgl_ds = toN   ? toN.il + y_norm   : null;
 
-let results=[]
+    const cover_us = fromN ? fromN.gl - fromN.il - D : null;
+    const cover_ds = toN   ? toN.gl - toN.il - D   : null;
+    const coverOk = (cover_us === null || cover_us * 1000 >= minCover) &&
+                    (cover_ds === null || cover_ds * 1000 >= minCover);
 
-pipes.forEach(p=>{
+    const status = ratio > 1 ? 'OVER' : Vfull < 0.6 ? 'LOW_V' : 'OK';
 
-let Q=flows[p.from]
+    return {
+      pipe: p,
+      slope, Qfull: Qfull, Vfull,
+      Qdesign, ratio,
+      hgl_us, hgl_ds,
+      cover_us_mm: cover_us !== null ? cover_us * 1000 : null,
+      cover_ds_mm: cover_ds !== null ? cover_ds * 1000 : null,
+      coverOk, status,
+      y_norm
+    };
+  });
 
-let y=solveDepth(p,Q)
+  calcResults = { pipeResults, flowAtNode, i };
 
-let A=areaPartial(p.d,y)
-
-let v=Q/A
-
-let a=pits[p.from]
-let b=pits[p.to]
-
-let len=Math.abs(b.chain-a.chain)
-
-let grade=(a.invert-b.invert)/len
-
-results.push({
-flow:Q,
-depth:y,
-velocity:v,
-length:len,
-grade
-})
-
-})
-
-return results
-
+  renderResults(calcResults);
+  renderDataTable(calcResults);
+  renderLongSection();
+  updateStatusBar();
+  switchTab('results', document.querySelectorAll('.tab-btn')[2]);
 }
 
-function drawGrid(){
-
-let xmin=d3.min(pits,d=>d.chain)
-let xmax=d3.max(pits,d=>d.chain)
-
-let ymin=d3.min(pits,d=>d.invert)-1
-let ymax=d3.max(pits,d=>d.ground)+1
-
-for(let x=xmin;x<=xmax;x+=10){
-
-svg.append("line")
-.attr("x1",scaleX(x))
-.attr("x2",scaleX(x))
-.attr("y1",scaleY(ymin))
-.attr("y2",scaleY(ymax))
-.attr("class","grid")
-
+function updateIntensityField() {
+  const i = getRainIntensity();
+  document.getElementById('rain-intensity').value = i.toFixed(2);
 }
 
-for(let y=ymin;y<=ymax;y+=0.5){
-
-svg.append("line")
-.attr("x1",scaleX(xmin))
-.attr("x2",scaleX(xmax))
-.attr("y1",scaleY(y))
-.attr("y2",scaleY(y))
-.attr("class","grid")
-
+// ============================================================
+// UI RENDERING
+// ============================================================
+function renderNodeList() {
+  const list = document.getElementById('node-list');
+  list.innerHTML = '';
+  nodes.forEach((n, idx) => {
+    const isOutlet = n.type === 'outlet';
+    const card = document.createElement('div');
+    card.className = `node-card${selectedNode === n.id ? ' selected' : ''}`;
+    card.innerHTML = `
+      <div class="node-card-header" onclick="toggleNode('${n.id}')">
+        <div class="node-badge ${isOutlet ? 'badge-outlet' : 'badge-pit'}">${idx + 1}</div>
+        <div class="node-name">${n.label}</div>
+        <span class="node-type-tag ${isOutlet ? 'tag-outlet' : 'tag-pit'}">${n.type.toUpperCase()}</span>
+        <button class="node-del-btn" onclick="deleteNode('${n.id}',event)">✕</button>
+      </div>
+      <div class="node-card-body" id="body-${n.id}">
+        <div class="field-row">
+          <div class="field">
+            <label>Label</label>
+            <input type="text" value="${n.label}" onchange="updateNode('${n.id}','label',this.value)">
+          </div>
+          <div class="field">
+            <label>Type</label>
+            <select onchange="updateNode('${n.id}','type',this.value)">
+              <option value="pit" ${n.type==='pit'?'selected':''}>Pit</option>
+              <option value="outlet" ${n.type==='outlet'?'selected':''}>Outlet</option>
+            </select>
+          </div>
+        </div>
+        <div class="field-row3">
+          <div class="field">
+            <label>Chainage (m)</label>
+            <input type="number" value="${n.chainage}" step="0.1" onchange="updateNode('${n.id}','chainage',+this.value)">
+          </div>
+          <div class="field">
+            <label>GL (m AHD)</label>
+            <input type="number" value="${n.gl}" step="0.001" onchange="updateNode('${n.id}','gl',+this.value)">
+          </div>
+          <div class="field">
+            <label>IL (m AHD)</label>
+            <input type="number" value="${n.il}" step="0.001" onchange="updateNode('${n.id}','il',+this.value)">
+          </div>
+        </div>
+        ${n.type === 'pit' ? `
+        <div class="field-row">
+          <div class="field">
+            <label>Area (ha)</label>
+            <input type="number" value="${n.area}" step="0.001" min="0" onchange="updateNode('${n.id}','area',+this.value)">
+          </div>
+          <div class="field">
+            <label>Fraction Imp. (C)</label>
+            <input type="number" value="${n.Cf}" step="0.01" min="0" max="1" onchange="updateNode('${n.id}','Cf',+this.value)">
+          </div>
+        </div>` : ''}
+      </div>
+    `;
+    list.appendChild(card);
+  });
+  renderPipeTable();
 }
 
+function renderPipeTable() {
+  const tbody = document.getElementById('pipe-tbody');
+  tbody.innerHTML = '';
+  pipes.forEach((p, idx) => {
+    const slopeVal = getPipeSlope(p).toFixed(2);
+    const matOptions = Object.keys(PIPE_MATERIALS).map(m =>
+      `<option value="${m}" ${p.material===m?'selected':''}>${m}</option>`
+    ).join('');
+    const diaOptions = STD_DIAMETERS.map(d =>
+      `<option value="${d}" ${p.dia===d?'selected':''}>${d}</option>`
+    ).join('');
+    const row = document.createElement('tr');
+    row.innerHTML = `
+      <td style="font-size:10px;color:var(--accent3);white-space:nowrap;">${p.from}→${p.to}</td>
+      <td><select onchange="updatePipe(${idx},'dia',+this.value)">${diaOptions}</select></td>
+      <td><select onchange="updatePipe(${idx},'material',this.value)">${matOptions}</select></td>
+      <td style="font-family:'Share Tech Mono',mono;font-size:11px;color:var(--muted);">${slopeVal}</td>
+    `;
+    tbody.appendChild(row);
+  });
 }
 
-function draw(){
+function renderResults(res) {
+  const div = document.getElementById('results-content');
+  const warnings = document.getElementById('summary-warnings');
 
-svg.selectAll("*").remove()
+  let html = `<table class="results-table">
+    <thead><tr>
+      <th>Pipe</th><th>Q des<br>(L/s)</th><th>Q full<br>(L/s)</th><th>Q/Qf</th><th>V<br>(m/s)</th><th>S<br>‰</th><th>Cov<br>US mm</th><th>Status</th>
+    </tr></thead><tbody>`;
 
-let results=compute()
-
-scaleX.domain(d3.extent(pits,d=>d.chain))
-scaleY.domain([d3.min(pits,d=>d.invert)-1,d3.max(pits,d=>d.ground)+1])
-
-drawGrid()
-
-let groundLine=d3.line()
-.x(d=>scaleX(d.chain))
-.y(d=>scaleY(d.ground))
-
-svg.append("path")
-.datum(pits)
-.attr("d",groundLine)
-.attr("class","ground")
-
-pipes.forEach((p,i)=>{
-
-let a=pits[p.from]
-let b=pits[p.to]
-
-let r=results[i]
-
-let ws1=a.invert+r.depth
-let ws2=b.invert+r.depth
-
-svg.append("line")
-.attr("x1",scaleX(a.chain))
-.attr("y1",scaleY(a.invert))
-.attr("x2",scaleX(b.chain))
-.attr("y2",scaleY(b.invert))
-.attr("class","pipe")
-
-svg.append("line")
-.attr("x1",scaleX(a.chain))
-.attr("y1",scaleY(a.invert+p.d))
-.attr("x2",scaleX(b.chain))
-.attr("y2",scaleY(b.invert+p.d))
-.attr("class","obvert")
-
-svg.append("line")
-.attr("x1",scaleX(a.chain))
-.attr("y1",scaleY(ws1))
-.attr("x2",scaleX(b.chain))
-.attr("y2",scaleY(ws2))
-.attr("class","water")
-
-svg.append("line")
-.attr("x1",scaleX(a.chain))
-.attr("y1",scaleY(ws1+0.05))
-.attr("x2",scaleX(b.chain))
-.attr("y2",scaleY(ws2+0.05))
-.attr("class","hgl")
-
-})
-
-pits.forEach(p=>{
-
-svg.append("rect")
-.attr("x",scaleX(p.chain)-6)
-.attr("y",scaleY(p.ground))
-.attr("width",12)
-.attr("height",scaleY(p.invert)-scaleY(p.ground))
-.attr("class","pit")
-
-svg.append("circle")
-.attr("cx",scaleX(p.chain))
-.attr("cy",scaleY(p.invert))
-.attr("r",5)
-.attr("class","handle")
-.call(d3.drag().on("drag",function(event){
-
-p.invert=scaleY.invert(event.y)
-draw()
-
-}))
-
-})
-
-updateTables(results)
-
+  let warnHtml = '';
+  for (const r of res.pipeResults) {
+    const statusClass = r.status === 'OK' ? 'result-ok' : r.status === 'OVER' ? 'result-fail' : 'result-warn';
+    const coverClass = r.cover_us_mm !== null && r.cover_us_mm < parseFloat(document.getElementById('min-cover').value)
+      ? 'result-fail' : 'result-ok';
+    html += `<tr>
+      <td>${r.pipe.from}→${r.pipe.to}</td>
+      <td>${fmt(r.Qdesign,1)}</td>
+      <td>${fmt(r.Qfull,1)}</td>
+      <td class="${statusClass}">${fmt(r.ratio,2)}</td>
+      <td class="${r.Vfull < 0.6 ? 'result-warn' : 'result-ok'}">${fmt(r.Vfull,2)}</td>
+      <td>${fmt(r.slope,2)}</td>
+      <td class="${coverClass}">${r.cover_us_mm !== null ? Math.round(r.cover_us_mm) : '—'}</td>
+      <td class="${statusClass}">${r.status}</td>
+    </tr>`;
+    if (r.status === 'OVER') warnHtml += `<div style="color:var(--danger);font-size:11px;padding:3px 0;">⚠ ${r.pipe.from}→${r.pipe.to}: Pipe surcharging (Q/Qf=${fmt(r.ratio,2)})</div>`;
+    if (r.Vfull < 0.6) warnHtml += `<div style="color:var(--warn);font-size:11px;padding:3px 0;">⚠ ${r.pipe.from}→${r.pipe.to}: Low velocity ${fmt(r.Vfull,2)} m/s (min 0.6)</div>`;
+    if (!r.coverOk) warnHtml += `<div style="color:var(--warn);font-size:11px;padding:3px 0;">⚠ ${r.pipe.from}→${r.pipe.to}: Cover may be insufficient</div>`;
+  }
+  html += '</tbody></table>';
+  div.innerHTML = html;
+  warnings.innerHTML = warnHtml || '<div style="color:var(--accent);font-size:11px;padding:4px 0;">✓ All pipes within capacity</div>';
 }
 
-function addPit(){
+// ============================================================
+// DATA TABLE (12d-style schedule below long section)
+// ============================================================
+function renderDataTable(res) {
+  const wrap = document.getElementById('data-table-wrap');
+  if (!res) {
+    wrap.innerHTML = '<div class="data-table-inner"><div class="dt-section-label">LONG SECTION SCHEDULE — run calculation to populate</div></div>';
+    return;
+  }
 
-let last=pits[pits.length-1]
+  // Build interleaved column sequence: node | pipe | node | pipe | ... | node
+  const sortedNodes = [...nodes].sort((a, b) => a.chainage - b.chainage);
+  const cols = [];  // {type:'node'|'pipe', data: node|pipeResult}
+  for (let i = 0; i < sortedNodes.length; i++) {
+    cols.push({ type: 'node', data: sortedNodes[i] });
+    if (i < sortedNodes.length - 1) {
+      // find pipe connecting this node to the next
+      const pr = res.pipeResults.find(r =>
+        r.pipe.from === sortedNodes[i].id && r.pipe.to === sortedNodes[i+1].id
+      );
+      if (pr) cols.push({ type: 'pipe', data: pr });
+      else cols.push({ type: 'pipe', data: null });
+    }
+  }
 
-let id=pits.length
+  const minCover = parseFloat(document.getElementById('min-cover').value) || 600;
 
-pits.push({
-id:id,
-type:"junction",
-chain:last.chain+40,
-ground:last.ground-0.05,
-invert:last.invert-0.05,
-area:300,
-imp:0.7
-})
+  // Row definitions: [rowLabel, fn(col) -> {val, cls}]
+  const rows = [
+    { label: 'Chainage (m)',
+      fn: c => c.type === 'node'
+        ? { val: c.data.chainage.toFixed(1), cls: '' }
+        : { val: '→', cls: '' }
+    },
+    { label: 'GL (m AHD)',
+      fn: c => c.type === 'node'
+        ? { val: c.data.gl.toFixed(3), cls: '' }
+        : { val: '—', cls: '' }
+    },
+    { label: 'IL (m AHD)',
+      fn: c => c.type === 'node'
+        ? { val: c.data.il.toFixed(3), cls: 'val-ok' }
+        : { val: '—', cls: '' }
+    },
+    { label: 'Cover (mm)',
+      fn: c => {
+        if (c.type !== 'node') return { val: '—', cls: '' };
+        // use max cover (pipe above IL)
+        const n = c.data;
+        const conPipe = res.pipeResults.find(r => r.pipe.from === n.id || r.pipe.to === n.id);
+        if (!conPipe) return { val: '—', cls: '' };
+        const D = conPipe.pipe.dia / 1000;
+        const cov = Math.round((n.gl - n.il - D) * 1000);
+        return { val: cov + ' mm', cls: cov < minCover ? 'val-fail' : 'val-ok' };
+      }
+    },
+    { label: 'Depth to IL (m)',
+      fn: c => c.type === 'node'
+        ? { val: (c.data.gl - c.data.il).toFixed(3), cls: '' }
+        : { val: '—', cls: '' }
+    },
+    { label: 'Pipe Dia (mm)',
+      fn: c => c.type === 'pipe' && c.data
+        ? { val: 'Ø' + c.data.pipe.dia, cls: '' }
+        : { val: '—', cls: '' }
+    },
+    { label: 'Material',
+      fn: c => c.type === 'pipe' && c.data
+        ? { val: c.data.pipe.material, cls: '' }
+        : { val: '—', cls: '' }
+    },
+    { label: 'n (Manning)',
+      fn: c => c.type === 'pipe' && c.data
+        ? { val: (PIPE_MATERIALS[c.data.pipe.material]?.n || 0.013).toFixed(3), cls: '' }
+        : { val: '—', cls: '' }
+    },
+    { label: 'Length (m)',
+      fn: c => {
+        if (c.type !== 'pipe' || !c.data) return { val: '—', cls: '' };
+        const fromN = getNode(c.data.pipe.from), toN = getNode(c.data.pipe.to);
+        if (!fromN || !toN) return { val: '—', cls: '' };
+        return { val: Math.abs(toN.chainage - fromN.chainage).toFixed(1), cls: '' };
+      }
+    },
+    { label: 'Slope (‰)',
+      fn: c => c.type === 'pipe' && c.data
+        ? { val: c.data.slope.toFixed(2) + '‰', cls: c.data.slope < 5 ? 'val-warn' : '' }
+        : { val: '—', cls: '' }
+    },
+    { label: 'Q design (L/s)',
+      fn: c => c.type === 'pipe' && c.data
+        ? { val: c.data.Qdesign.toFixed(2), cls: '' }
+        : { val: '—', cls: '' }
+    },
+    { label: 'Q full (L/s)',
+      fn: c => c.type === 'pipe' && c.data
+        ? { val: c.data.Qfull.toFixed(2), cls: '' }
+        : { val: '—', cls: '' }
+    },
+    { label: 'Q/Qfull',
+      fn: c => {
+        if (c.type !== 'pipe' || !c.data) return { val: '—', cls: '' };
+        const r = c.data.ratio;
+        return { val: r.toFixed(3), cls: r > 1 ? 'val-fail' : r > 0.85 ? 'val-warn' : 'val-ok' };
+      }
+    },
+    { label: 'V full (m/s)',
+      fn: c => c.type === 'pipe' && c.data
+        ? { val: c.data.Vfull.toFixed(2), cls: c.data.Vfull < 0.6 ? 'val-warn' : 'val-ok' }
+        : { val: '—', cls: '' }
+    },
+    { label: 'HGL US (m)',
+      fn: c => c.type === 'pipe' && c.data && c.data.hgl_us !== null
+        ? { val: c.data.hgl_us.toFixed(3), cls: '' }
+        : { val: '—', cls: '' }
+    },
+    { label: 'HGL DS (m)',
+      fn: c => c.type === 'pipe' && c.data && c.data.hgl_ds !== null
+        ? { val: c.data.hgl_ds.toFixed(3), cls: '' }
+        : { val: '—', cls: '' }
+    },
+    { label: 'Catchment (ha)',
+      fn: c => c.type === 'node'
+        ? { val: c.data.area > 0 ? c.data.area.toFixed(3) : '—', cls: '' }
+        : { val: '—', cls: '' }
+    },
+    { label: 'Fraction Imp.',
+      fn: c => c.type === 'node' && c.data.area > 0
+        ? { val: c.data.Cf.toFixed(2), cls: '' }
+        : { val: '—', cls: '' }
+    },
+    { label: 'Status',
+      fn: c => {
+        if (c.type !== 'pipe' || !c.data) return { val: '—', cls: '' };
+        const s = c.data.status;
+        return { val: s, cls: s === 'OK' ? 'val-ok' : s === 'OVER' ? 'val-fail' : 'val-warn' };
+      }
+    },
+  ];
 
-pipes.unshift({
-from:id,
-to:id-1,
-d:0.225,
-n:0.013
-})
+  // Build header row
+  let thCells = `<th class="row-label">Parameter</th>`;
+  cols.forEach(c => {
+    const isNode = c.type === 'node';
+    const lbl = isNode
+      ? c.data.label
+      : (c.data ? `${c.data.pipe.from}→${c.data.pipe.to}` : '?');
+    thCells += `<th class="${isNode ? 'col-node' : 'col-pipe'}">${lbl}</th>`;
+  });
 
-draw()
+  // Build data rows
+  let bodyRows = '';
+  rows.forEach(row => {
+    let tds = `<td class="row-label">${row.label}</td>`;
+    cols.forEach(c => {
+      const cell = row.fn(c);
+      tds += `<td class="${c.type === 'pipe' ? 'col-pipe ' : ''}${cell.cls || ''}">${cell.val}</td>`;
+    });
+    bodyRows += `<tr>${tds}</tr>`;
+  });
 
+  wrap.innerHTML = `
+    <div class="data-table-inner">
+      <div class="dt-section-label">LONG SECTION SCHEDULE &nbsp;|&nbsp; i = ${res.i.toFixed(1)} mm/hr &nbsp;|&nbsp; Rational Method Q = CiA/360</div>
+      <table class="dt">
+        <thead><tr>${thCells}</tr></thead>
+        <tbody>${bodyRows}</tbody>
+      </table>
+    </div>`;
 }
 
-function deletePit(){
 
-if(pits.length<=1)return
+function renderLongSection() {
+  const svgEl = document.getElementById('long-section-svg');
+  const W = svgEl.clientWidth || 800;
+  const H = svgEl.clientHeight || 400;
+  if (W < 50 || H < 50) return;
 
-pits.pop()
-pipes.shift()
+  const margin = { top: 30, right: 30, bottom: 80, left: 70 };
+  const innerW = W - margin.left - margin.right;
+  const innerH = H - margin.top - margin.bottom;
 
-draw()
+  d3.select('#long-section-svg').selectAll('*').remove();
+  const svg = d3.select('#long-section-svg')
+    .attr('width', W).attr('height', H);
 
+  const g = svg.append('g').attr('transform', `translate(${margin.left},${margin.top})`);
+
+  // Sort nodes
+  const sortedNodes = [...nodes].sort((a, b) => a.chainage - b.chainage);
+  const chainages = sortedNodes.map(n => n.chainage);
+  const gls = sortedNodes.map(n => n.gl);
+  const ils = sortedNodes.map(n => n.il);
+
+  if (sortedNodes.length < 2) {
+    g.append('text').attr('x', innerW/2).attr('y', innerH/2)
+      .attr('text-anchor','middle').attr('fill','var(--muted)')
+      .text('Add at least 2 nodes');
+    return;
+  }
+
+  const xMin = d3.min(chainages), xMax = d3.max(chainages);
+  const yMin = d3.min([...ils]) - 0.5;
+  const yMax = d3.max([...gls]) + 0.3;
+
+  const xScale = d3.scaleLinear().domain([xMin, xMax]).range([0, innerW]);
+  const yScale = d3.scaleLinear().domain([yMin, yMax]).range([innerH, 0]);
+
+  // Grid
+  const xTicks = xScale.ticks(8);
+  const yTicks = yScale.ticks(6);
+  xTicks.forEach(t => {
+    g.append('line').attr('class','grid-line')
+      .attr('x1', xScale(t)).attr('x2', xScale(t))
+      .attr('y1', 0).attr('y2', innerH);
+  });
+  yTicks.forEach(t => {
+    g.append('line').attr('class','grid-line')
+      .attr('x1', 0).attr('x2', innerW)
+      .attr('y1', yScale(t)).attr('y2', yScale(t));
+  });
+
+  // Axes
+  g.append('g').attr('transform', `translate(0,${innerH})`)
+    .call(d3.axisBottom(xScale).ticks(8).tickFormat(d => d + 'm'))
+    .selectAll('text').attr('class','axis-text').attr('fill','var(--muted)');
+  g.select('.domain').attr('stroke','var(--border)');
+  g.selectAll('.tick line').attr('stroke','var(--border)');
+
+  g.append('g')
+    .call(d3.axisLeft(yScale).ticks(6).tickFormat(d => d.toFixed(2)))
+    .selectAll('text').attr('class','axis-text').attr('fill','var(--muted)');
+
+  // Axis labels
+  g.append('text').attr('class','axis-text').attr('text-anchor','middle')
+    .attr('x', innerW/2).attr('y', innerH + 42).attr('fill','var(--muted)')
+    .text('Chainage (m)');
+  g.append('text').attr('class','axis-text').attr('text-anchor','middle')
+    .attr('transform',`rotate(-90)`).attr('x', -innerH/2).attr('y', -52).attr('fill','var(--muted)')
+    .text('Level (m AHD)');
+
+  // Ground line
+  const groundLine = d3.line()
+    .x(d => xScale(d.chainage))
+    .y(d => yScale(d.gl));
+  g.append('path').datum(sortedNodes)
+    .attr('class','ground-line')
+    .attr('d', groundLine);
+
+  // Ground fill
+  const groundArea = d3.area()
+    .x(d => xScale(d.chainage))
+    .y0(innerH)
+    .y1(d => yScale(d.gl));
+  g.append('path').datum(sortedNodes)
+    .attr('fill', 'rgba(139,105,20,0.07)')
+    .attr('d', groundArea);
+
+  // Pipe invert lines (per pipe)
+  for (const p of pipes) {
+    const fromN = getNode(p.from);
+    const toN   = getNode(p.to);
+    if (!fromN || !toN) continue;
+    const D = p.dia / 1000;
+
+    // IL line
+    g.append('line').attr('class','pipe-line')
+      .attr('x1', xScale(fromN.chainage)).attr('y1', yScale(fromN.il))
+      .attr('x2', xScale(toN.chainage)).attr('y2', yScale(toN.il));
+
+    // Soffit line
+    g.append('line').attr('class','invert-line')
+      .attr('x1', xScale(fromN.chainage)).attr('y1', yScale(fromN.il + D))
+      .attr('x2', xScale(toN.chainage)).attr('y2', yScale(toN.il + D));
+
+    // Pipe diameter label at midpoint
+    const midX = (fromN.chainage + toN.chainage) / 2;
+    const midIL = (fromN.il + toN.il) / 2;
+    const slope = getPipeSlope(p).toFixed(1);
+    g.append('text').attr('class','pipe-label')
+      .attr('x', xScale(midX)).attr('y', yScale(midIL) - 6)
+      .attr('text-anchor','middle')
+      .text(`Ø${p.dia} ${p.material} S=${slope}‰`);
+
+    // Pipe depth fill (represents pipe cylinder)
+    const pipeArea = d3.area()
+      .x(d => xScale(d.ch))
+      .y0(d => yScale(d.il))
+      .y1(d => yScale(d.il + D));
+    g.append('path').datum([
+        {ch: fromN.chainage, il: fromN.il},
+        {ch: toN.chainage,   il: toN.il}
+      ])
+      .attr('fill', 'rgba(79,172,254,0.12)')
+      .attr('d', pipeArea);
+  }
+
+  // HGL if calculated
+  if (calcResults) {
+    for (const r of calcResults.pipeResults) {
+      const fromN = getNode(r.pipe.from);
+      const toN   = getNode(r.pipe.to);
+      if (!fromN || !toN || r.hgl_us === null) continue;
+      g.append('line').attr('class','hgl-line')
+        .attr('x1', xScale(fromN.chainage)).attr('y1', yScale(r.hgl_us))
+        .attr('x2', xScale(toN.chainage)).attr('y2', yScale(r.hgl_ds || r.hgl_us));
+    }
+  }
+
+  // Node symbols
+  sortedNodes.forEach(n => {
+    const cx = xScale(n.chainage);
+    const cyGL = yScale(n.gl);
+    const cyIL = yScale(n.il);
+    const isOutlet = n.type === 'outlet';
+
+    // Vertical drop line (GL to IL)
+    g.append('line')
+      .attr('stroke', isOutlet ? 'var(--accent2)' : 'var(--accent3)')
+      .attr('stroke-width', 1.5)
+      .attr('x1', cx).attr('y1', cyGL)
+      .attr('x2', cx).attr('y2', cyIL);
+
+    // Pit symbol at GL level
+    if (!isOutlet) {
+      g.append('rect').attr('class','pit-symbol')
+        .attr('x', cx - 8).attr('y', cyGL - 10)
+        .attr('width', 16).attr('height', 10);
+    } else {
+      g.append('circle').attr('class','outlet-symbol')
+        .attr('cx', cx).attr('cy', cyGL - 7).attr('r', 6);
+    }
+
+    // IL circle
+    g.append('circle')
+      .attr('fill', isOutlet ? 'var(--accent2)' : 'var(--accent3)')
+      .attr('r', 3)
+      .attr('cx', cx).attr('cy', cyIL);
+
+    // Label
+    g.append('text').attr('class','label-text')
+      .attr('x', cx).attr('y', cyGL - 16)
+      .attr('text-anchor','middle')
+      .attr('fill', isOutlet ? 'var(--accent2)' : 'var(--text)')
+      .text(n.label);
+
+    // Chainage & levels text (in table zone below)
+    const ty = innerH + 56;
+    g.append('text').attr('class','cover-label')
+      .attr('x', cx).attr('y', ty - 20)
+      .attr('text-anchor','middle').attr('fill','var(--muted)')
+      .text(`Ch.${n.chainage}`);
+    g.append('text').attr('class','cover-label')
+      .attr('x', cx).attr('y', ty - 8)
+      .attr('text-anchor','middle').attr('fill','var(--accent)')
+      .text(`IL=${n.il.toFixed(3)}`);
+  });
+
+  // Tooltip on hover
+  const tooltip = document.getElementById('tooltip');
+  // invisible overlay for mouse events
+  g.append('rect')
+    .attr('width', innerW).attr('height', innerH)
+    .attr('fill', 'transparent')
+    .on('mousemove', function(event) {
+      const [mx] = d3.pointer(event);
+      const ch = xScale.invert(mx);
+      // find nearest pipe
+      let nearest = null, minDist = Infinity;
+      for (const p of pipes) {
+        const fromN = getNode(p.from), toN = getNode(p.to);
+        if (!fromN || !toN) continue;
+        if (ch >= fromN.chainage && ch <= toN.chainage) {
+          const mid = (fromN.chainage + toN.chainage) / 2;
+          const d = Math.abs(ch - mid);
+          if (d < minDist) { minDist = d; nearest = p; }
+        }
+      }
+      if (nearest) {
+        const r = calcResults?.pipeResults.find(x => x.pipe === nearest);
+        let html = `<b>${nearest.from}→${nearest.to}</b><br>Ø${nearest.dia}mm ${nearest.material}<br>S=${getPipeSlope(nearest).toFixed(2)}‰`;
+        if (r) html += `<br>Q=${fmt(r.Qdesign,1)}L/s Qf=${fmt(r.Qfull,1)}L/s<br>V=${fmt(r.Vfull,2)}m/s Ratio=${fmt(r.ratio,2)}`;
+        tooltip.innerHTML = html;
+        tooltip.style.left = (event.clientX + 14) + 'px';
+        tooltip.style.top  = (event.clientY - 10) + 'px';
+        tooltip.classList.add('visible');
+      } else {
+        tooltip.classList.remove('visible');
+      }
+    })
+    .on('mouseleave', () => tooltip.classList.remove('visible'));
 }
 
-function autosize(){
-
-let results=compute()
-
-pipes.forEach((p,i)=>{
-
-let Q=results[i].flow
-
-for(let d of diameters){
-
-p.d=d
-
-let y=solveDepth(p,Q)
-
-if(y/d<0.8)break
-
+// ============================================================
+// NODE/PIPE MANAGEMENT
+// ============================================================
+let nodeCounter = 10;
+function addPit() {
+  nodeCounter++;
+  const lastNode = nodes[nodes.length - 1];
+  const id = 'P' + nodeCounter;
+  nodes.push({
+    id, type: 'pit', label: 'Pit ' + nodeCounter,
+    chainage: lastNode ? lastNode.chainage + 20 : 0,
+    gl: lastNode ? lastNode.gl - 0.2 : 102,
+    il: lastNode ? lastNode.il - 0.3 : 101,
+    area: 0.05, Cf: 0.7
+  });
+  // Add pipe if there are prior nodes
+  if (nodes.length >= 2) {
+    const prev = nodes[nodes.length - 2];
+    pipes.push({ from: prev.id, to: id, dia: 225, material: 'uPVC SN8', slopeMode: 'il' });
+  }
+  renderNodeList();
+  renderLongSection();
 }
 
-})
-
-draw()
-
+function addOutlet() {
+  nodeCounter++;
+  const lastNode = nodes[nodes.length - 1];
+  const id = 'K' + nodeCounter;
+  nodes.push({
+    id, type: 'outlet', label: 'Outlet ' + nodeCounter,
+    chainage: lastNode ? lastNode.chainage + 20 : 40,
+    gl: lastNode ? lastNode.gl - 0.2 : 101.5,
+    il: lastNode ? lastNode.il - 0.3 : 100.5,
+    area: 0, Cf: 0
+  });
+  if (nodes.length >= 2) {
+    const prev = nodes[nodes.length - 2];
+    pipes.push({ from: prev.id, to: id, dia: 225, material: 'uPVC SN8', slopeMode: 'il' });
+  }
+  renderNodeList();
+  renderLongSection();
 }
 
-function exportDXF(){
-
-let dxf="0\nSECTION\n2\nENTITIES\n"
-
-pipes.forEach(p=>{
-
-let a=pits[p.from]
-let b=pits[p.to]
-
-dxf+=`0
-LINE
-8
-PIPE_INVERT
-10
-${a.chain}
-20
-${a.invert}
-11
-${b.chain}
-21
-${b.invert}
-`
-
-})
-
-dxf+="0\nENDSEC\n0\nEOF"
-
-let blob=new Blob([dxf])
-
-let a=document.createElement("a")
-a.href=URL.createObjectURL(blob)
-a.download="long_section.dxf"
-a.click()
-
+function deleteNode(id, event) {
+  event.stopPropagation();
+  if (nodes.length <= 2) { alert('Must keep at least 2 nodes.'); return; }
+  nodes = nodes.filter(n => n.id !== id);
+  pipes = pipes.filter(p => p.from !== id && p.to !== id);
+  renderNodeList();
+  renderLongSection();
 }
 
-draw()
+function toggleNode(id) {
+  const body = document.getElementById('body-' + id);
+  body.classList.toggle('open');
+}
 
+function updateNode(id, field, value) {
+  const n = getNode(id);
+  if (n) n[field] = value;
+  renderPipeTable(); // refresh slopes
+  renderLongSection();
+}
+
+function updatePipe(idx, field, value) {
+  pipes[idx][field] = value;
+  renderPipeTable();
+  renderLongSection();
+}
+
+function switchTab(tab, btn) {
+  document.querySelectorAll('.tab-content').forEach(t => t.classList.remove('active'));
+  document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+  document.getElementById('tab-' + tab).classList.add('active');
+  btn.classList.add('active');
+}
+
+function updateStatusBar() {
+  document.getElementById('sb-nodes').textContent = 'Nodes: ' + nodes.length;
+  document.getElementById('sb-pipes').textContent = 'Pipes: ' + pipes.length;
+  if (calcResults) {
+    const lastPipe = calcResults.pipeResults[calcResults.pipeResults.length - 1];
+    if (lastPipe) {
+      document.getElementById('sb-q').textContent = `Q: ${fmt(lastPipe.Qdesign,1)} L/s`;
+      document.getElementById('sb-v').textContent = `V: ${fmt(lastPipe.Vfull,2)} m/s`;
+    }
+  }
+}
+
+// ============================================================
+// DXF EXPORT
+// ============================================================
+function exportDXF() {
+  const sortedNodes = [...nodes].sort((a, b) => a.chainage - b.chainage);
+  if (sortedNodes.length < 2) { alert('Need at least 2 nodes.'); return; }
+
+  // Scale: 1 unit = 1m horizontal, 10x vertical exaggeration for drawing
+  const VSCALE = 10;
+  const xOff = sortedNodes[0].chainage;
+  const totalLength = sortedNodes[sortedNodes.length - 1].chainage - sortedNodes[0].chainage;
+
+  // Drawing Y origin for long section; table sits below at negative Y
+  const minIL = d3.min(nodes, n => n.il);
+  const maxGL = d3.max(nodes, n => n.gl);
+  const drawingYBase = minIL * VSCALE - 2; // bottom of drawing area
+
+  function dxX(ch) { return ch - xOff; }
+  function dxY(elev) { return elev * VSCALE; }
+
+  const drawing = new Drawing({
+    layers: [
+      new Layer({ name: 'GROUND',    color: 30 }),
+      new Layer({ name: 'PIPE_IL',   color: 5  }),
+      new Layer({ name: 'SOFFIT',    color: 6  }),
+      new Layer({ name: 'HGL',       color: 3  }),
+      new Layer({ name: 'NODES',     color: 4  }),
+      new Layer({ name: 'LABELS',    color: 7  }),
+      new Layer({ name: 'TABLE',     color: 2  }),
+      new Layer({ name: 'TABLE_HDR', color: 6  }),
+      new Layer({ name: 'TABLE_VAL', color: 7  }),
+    ],
+    extmin: [0, drawingYBase - 60],
+    extmax: [totalLength, dxY(maxGL) + 3],
+  });
+
+  // ---- LONG SECTION DRAWING ----
+
+  // Border box for long section
+  drawing.append(new Rectangle({
+    point: [-1, dxY(minIL) - 1],
+    width: totalLength + 2,
+    height: dxY(maxGL) - dxY(minIL) + 3,
+    layer: 'TABLE'
+  }));
+
+  // Ground line
+  const groundPts = sortedNodes.map(n => [dxX(n.chainage), dxY(n.gl)]);
+  for (let i = 0; i < groundPts.length - 1; i++) {
+    drawing.append(new Line([groundPts[i], groundPts[i+1]], { layer: 'GROUND' }));
+  }
+
+  // Pipes — IL, soffit, barrel fill lines
+  for (const p of pipes) {
+    const fromN = getNode(p.from), toN = getNode(p.to);
+    if (!fromN || !toN) continue;
+    const D = p.dia / 1000;
+    // IL (invert) line
+    drawing.append(new Line([[dxX(fromN.chainage), dxY(fromN.il)], [dxX(toN.chainage), dxY(toN.il)]], { layer: 'PIPE_IL' }));
+    // Soffit line
+    drawing.append(new Line([[dxX(fromN.chainage), dxY(fromN.il + D)], [dxX(toN.chainage), dxY(toN.il + D)]], { layer: 'SOFFIT' }));
+    // Left cap
+    drawing.append(new Line([[dxX(fromN.chainage), dxY(fromN.il)], [dxX(fromN.chainage), dxY(fromN.il + D)]], { layer: 'PIPE_IL' }));
+    // Right cap
+    drawing.append(new Line([[dxX(toN.chainage), dxY(toN.il)], [dxX(toN.chainage), dxY(toN.il + D)]], { layer: 'PIPE_IL' }));
+
+    // Pipe label at mid-pipe
+    const midCh = (fromN.chainage + toN.chainage) / 2;
+    const midIL = (fromN.il + toN.il) / 2;
+    const slope = getPipeSlope(p);
+    const r = calcResults?.pipeResults.find(x => x.pipe === p);
+    const ratioTxt = r ? ` Q/Qf=${r.ratio.toFixed(2)}` : '';
+    drawing.append(new Text(`Dia ${p.dia}mm ${p.material} S=${slope.toFixed(2)}‰${ratioTxt}`,
+      [dxX(midCh), dxY(midIL + D) + 0.2], { layer: 'LABELS', height: 0.35 }));
+  }
+
+  // HGL
+  if (calcResults) {
+    for (const r of calcResults.pipeResults) {
+      const fromN = getNode(r.pipe.from), toN = getNode(r.pipe.to);
+      if (!fromN || !toN || r.hgl_us === null) continue;
+      drawing.append(new Line([[dxX(fromN.chainage), dxY(r.hgl_us)], [dxX(toN.chainage), dxY(r.hgl_ds)]], { layer: 'HGL' }));
+    }
+  }
+
+  // Node drop lines and symbols
+  sortedNodes.forEach(n => {
+    const x = dxX(n.chainage);
+    const isOutlet = n.type === 'outlet';
+    // Drop line GL to IL
+    drawing.append(new Line([[x, dxY(n.gl)], [x, dxY(n.il)]], { layer: 'NODES' }));
+    // Pit box at GL
+    if (!isOutlet) {
+      drawing.append(new Rectangle({ point: [x - 0.3, dxY(n.gl)], width: 0.6, height: 0.4, layer: 'NODES' }));
+    } else {
+      drawing.append(new Circle([x, dxY(n.gl) + 0.25], 0.25, { layer: 'NODES' }));
+    }
+    // IL circle
+    drawing.append(new Circle([x, dxY(n.il)], 0.12, { layer: 'NODES' }));
+    // Node label above GL
+    drawing.append(new Text(n.label, [x, dxY(n.gl) + 0.7], { layer: 'LABELS', height: 0.4 }));
+  });
+
+  // ---- DATA TABLE (below long section) ----
+  // Table starts at Y = drawingYBase - 2, columns aligned to node/pipe chainages
+
+  if (calcResults) {
+    const colNodPipe = [];
+    for (let i = 0; i < sortedNodes.length; i++) {
+      colNodPipe.push({ type: 'node', data: sortedNodes[i] });
+      if (i < sortedNodes.length - 1) {
+        const pr = calcResults.pipeResults.find(r =>
+          r.pipe.from === sortedNodes[i].id && r.pipe.to === sortedNodes[i+1].id);
+        colNodPipe.push({ type: 'pipe', data: pr || null });
+      }
+    }
+
+    const minCover = parseFloat(document.getElementById('min-cover').value) || 600;
+    const tableRows = [
+      { label: 'Node / Pipe',       fn: c => c.type === 'node' ? c.data.label : (c.data ? `${c.data.pipe.from}→${c.data.pipe.to}` : '') },
+      { label: 'Chainage (m)',      fn: c => c.type === 'node' ? c.data.chainage.toFixed(1) : '' },
+      { label: 'GL (m AHD)',        fn: c => c.type === 'node' ? c.data.gl.toFixed(3) : '' },
+      { label: 'IL (m AHD)',        fn: c => c.type === 'node' ? c.data.il.toFixed(3) : '' },
+      { label: 'Depth to IL (m)',   fn: c => c.type === 'node' ? (c.data.gl - c.data.il).toFixed(3) : '' },
+      { label: 'Cover (mm)',        fn: c => {
+          if (c.type !== 'node') return '';
+          const cp = calcResults.pipeResults.find(r => r.pipe.from === c.data.id || r.pipe.to === c.data.id);
+          if (!cp) return '';
+          return Math.round((c.data.gl - c.data.il - cp.pipe.dia/1000) * 1000) + '';
+        }
+      },
+      { label: 'Pipe Dia (mm)',     fn: c => c.type === 'pipe' && c.data ? 'O' + c.data.pipe.dia : '' },
+      { label: 'Material',          fn: c => c.type === 'pipe' && c.data ? c.data.pipe.material : '' },
+      { label: "n (Manning's)",     fn: c => c.type === 'pipe' && c.data ? (PIPE_MATERIALS[c.data.pipe.material]?.n || 0.013).toFixed(3) : '' },
+      { label: 'Length (m)',        fn: c => {
+          if (c.type !== 'pipe' || !c.data) return '';
+          const fN = getNode(c.data.pipe.from), tN = getNode(c.data.pipe.to);
+          return fN && tN ? Math.abs(tN.chainage - fN.chainage).toFixed(1) : '';
+        }
+      },
+      { label: 'Slope (o/oo)',      fn: c => c.type === 'pipe' && c.data ? c.data.slope.toFixed(2) : '' },
+      { label: 'Q design (L/s)',    fn: c => c.type === 'pipe' && c.data ? c.data.Qdesign.toFixed(2) : '' },
+      { label: 'Q full (L/s)',      fn: c => c.type === 'pipe' && c.data ? c.data.Qfull.toFixed(2) : '' },
+      { label: 'Q / Qfull',         fn: c => c.type === 'pipe' && c.data ? c.data.ratio.toFixed(3) : '' },
+      { label: 'V full (m/s)',      fn: c => c.type === 'pipe' && c.data ? c.data.Vfull.toFixed(2) : '' },
+      { label: 'HGL US (m AHD)',    fn: c => c.type === 'pipe' && c.data && c.data.hgl_us !== null ? c.data.hgl_us.toFixed(3) : '' },
+      { label: 'HGL DS (m AHD)',    fn: c => c.type === 'pipe' && c.data && c.data.hgl_ds !== null ? c.data.hgl_ds.toFixed(3) : '' },
+      { label: 'Catchment (ha)',    fn: c => c.type === 'node' && c.data.area > 0 ? c.data.area.toFixed(3) : '' },
+      { label: 'Fraction Imp.',     fn: c => c.type === 'node' && c.data.area > 0 ? c.data.Cf.toFixed(2) : '' },
+      { label: 'Status',            fn: c => c.type === 'pipe' && c.data ? c.data.status : '' },
+    ];
+
+    const ROW_H = 0.7;   // height of each table row in DXF units
+    const COL_W = Math.max(4, totalLength / colNodPipe.length); // width per column
+    const LABEL_W = 4.5; // width of row-label column
+    const tableTop = drawingYBase - 1;
+    const tableLeft = -LABEL_W;
+
+    // Table outer border
+    const tableH = tableRows.length * ROW_H;
+    const tableW = LABEL_W + colNodPipe.length * COL_W;
+    drawing.append(new Rectangle({ point: [tableLeft, tableTop - tableH], width: tableW, height: tableH, layer: 'TABLE' }));
+
+    // Header row background lines
+    drawing.append(new Line([[tableLeft, tableTop], [tableLeft + tableW, tableTop]], { layer: 'TABLE_HDR' }));
+    drawing.append(new Line([[tableLeft, tableTop - ROW_H], [tableLeft + tableW, tableTop - ROW_H]], { layer: 'TABLE_HDR' }));
+
+    // Column header labels
+    colNodPipe.forEach((c, ci) => {
+      const cx = tableLeft + LABEL_W + ci * COL_W + COL_W * 0.1;
+      const lbl = c.type === 'node' ? c.data.label : (c.data ? `${c.data.pipe.from}-${c.data.pipe.to}` : '');
+      drawing.append(new Text(lbl, [cx, tableTop - ROW_H + 0.15], { layer: 'TABLE_HDR', height: 0.3 }));
+      // Vertical divider
+      const vx = tableLeft + LABEL_W + ci * COL_W;
+      drawing.append(new Line([[vx, tableTop], [vx, tableTop - tableH]], { layer: 'TABLE' }));
+    });
+    // Row label column right border
+    drawing.append(new Line([[tableLeft + LABEL_W, tableTop], [tableLeft + LABEL_W, tableTop - tableH]], { layer: 'TABLE' }));
+
+    // Data rows
+    tableRows.forEach((row, ri) => {
+      const rowY = tableTop - (ri + 1) * ROW_H;
+      // Row divider
+      drawing.append(new Line([[tableLeft, rowY], [tableLeft + tableW, rowY]], { layer: 'TABLE' }));
+      // Row label
+      drawing.append(new Text(row.label, [tableLeft + 0.1, rowY + 0.15], { layer: 'TABLE_HDR', height: 0.25 }));
+      // Cell values
+      colNodPipe.forEach((c, ci) => {
+        const val = row.fn(c);
+        if (val) {
+          const cx = tableLeft + LABEL_W + ci * COL_W + 0.15;
+          drawing.append(new Text(val, [cx, rowY + 0.15], { layer: 'TABLE_VAL', height: 0.25 }));
+        }
+      });
+    });
+
+    // Title row above table
+    drawing.append(new Text(
+      `PIPE LONG SECTION SCHEDULE  |  i=${calcResults.i.toFixed(1)}mm/hr  |  Rational Method Q=CiA/360`,
+      [tableLeft, tableTop + 0.3], { layer: 'TABLE_HDR', height: 0.4 }
+    ));
+  }
+
+  const dxfStr = drawing.toString();
+  const blob = new Blob([dxfStr], { type: 'application/dxf' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = 'pipe_long_section.dxf';
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+// ============================================================
+// INIT
+// ============================================================
+document.getElementById('rain-depth').addEventListener('input', updateIntensityField);
+document.getElementById('rain-dur').addEventListener('input', updateIntensityField);
+document.getElementById('vscale').addEventListener('change', renderLongSection);
+document.getElementById('hscale').addEventListener('change', renderLongSection);
+
+window.addEventListener('resize', () => {
+  clearTimeout(window._resizeTimer);
+  window._resizeTimer = setTimeout(renderLongSection, 100);
+});
+
+updateIntensityField();
+renderNodeList();
+runCalc();
 </script>
-
 </body>
-</html>
+  </html>
