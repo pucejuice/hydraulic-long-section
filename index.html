@@ -20,7 +20,7 @@ padding:10px;
 border-bottom:1px solid #444;
 }
 
-button,input{
+button,input,select{
 background:#333;
 color:#ddd;
 border:1px solid #555;
@@ -41,9 +41,7 @@ padding:4px;
 text-align:center;
 }
 
-svg{
-background:#181818;
-}
+svg{background:#181818}
 
 .pipe{stroke:#66aaff;stroke-width:3}
 .obvert{stroke:#3388ff;stroke-dasharray:5,3}
@@ -51,17 +49,15 @@ background:#181818;
 .hgl{stroke:#ffaa00;stroke-width:2;stroke-dasharray:6,4}
 .ground{stroke:#44aa44;stroke-width:2}
 
+.grid{stroke:#333;stroke-width:1}
+
 .pit{stroke:#aaa;fill:none}
 
-.handle{
-fill:#ff4444;
-cursor:pointer;
-}
+.handle{fill:#ff4444;cursor:pointer}
 
-.label{
-fill:#ccc;
-font-size:11px;
-}
+.label{fill:#ccc;font-size:11px}
+
+.outlet{background:#003366}
 
 </style>
 </head>
@@ -75,6 +71,9 @@ Rainfall Depth (mm)
 
 Duration (min)
 <input id="duration" type="number" value="5">
+
+<button onclick="addPit()">Add Pit</button>
+<button onclick="deletePit()">Delete Pit</button>
 
 <button onclick="autosize()">Auto Size Pipes</button>
 <button onclick="saveJSON()">Save</button>
@@ -107,14 +106,14 @@ const scaleY=d3.scaleLinear().range([height-50,40])
 const diameters=[0.09,0.1,0.15,0.225,0.3,0.375,0.45]
 
 let pits=[
-{id:0,chain:0,ground:10,invert:8,area:500,imp:0.8},
-{id:1,chain:40,ground:9.8,invert:7.8,area:400,imp:0.7},
-{id:2,chain:80,ground:9.7,invert:7.6,area:300,imp:0.6}
+{id:0,type:"outlet",chain:0,ground:10,invert:8,area:0,imp:0},
+{id:1,type:"junction",chain:40,ground:9.8,invert:7.8,area:400,imp:0.7},
+{id:2,type:"junction",chain:80,ground:9.7,invert:7.6,area:300,imp:0.6}
 ]
 
 let pipes=[
-{from:0,to:1,d:0.225,n:0.013},
-{from:1,to:2,d:0.225,n:0.013}
+{from:2,to:1,d:0.225,n:0.013},
+{from:1,to:0,d:0.225,n:0.013}
 ]
 
 function runoff(area,imp){
@@ -122,8 +121,7 @@ function runoff(area,imp){
 let depth=document.getElementById("rainDepth").value/1000
 let dur=document.getElementById("duration").value*60
 
-let vol=area*imp*depth
-return vol/dur
+return area*imp*depth/dur
 
 }
 
@@ -162,11 +160,11 @@ let P=wettedPerimeter(d,y)
 let R=A/P
 
 let S=(pits[pipe.from].invert-pits[pipe.to].invert)/
-(pits[pipe.to].chain-pits[pipe.from].chain)
+Math.abs(pits[pipe.to].chain-pits[pipe.from].chain)
 
 let q=manning(A,R,S,pipe.n)
 
-if(q>=Q) return y
+if(q>=Q)return y
 
 }
 
@@ -176,37 +174,80 @@ return d
 
 function compute(){
 
+let flows={}
+
+pits.forEach(p=>{
+flows[p.id]=runoff(p.area,p.imp)
+})
+
+pipes.forEach(p=>{
+
+flows[p.to]+=flows[p.from]
+
+})
+
 let results=[]
-let flow=0
 
-for(let i=pipes.length-1;i>=0;i--){
+pipes.forEach(p=>{
 
-let p=pipes[i]
+let Q=flows[p.from]
 
-flow+=runoff(pits[p.from].area,pits[p.from].imp)
-
-let y=solveDepth(p,flow)
+let y=solveDepth(p,Q)
 
 let A=areaPartial(p.d,y)
-let v=flow/A
+
+let v=Q/A
 
 let a=pits[p.from]
 let b=pits[p.to]
 
-let len=b.chain-a.chain
+let len=Math.abs(b.chain-a.chain)
+
 let grade=(a.invert-b.invert)/len
 
-results.unshift({
-flow,
+results.push({
+flow:Q,
 depth:y,
 velocity:v,
 length:len,
 grade
 })
 
-}
+})
 
 return results
+
+}
+
+function drawGrid(){
+
+let xmin=d3.min(pits,d=>d.chain)
+let xmax=d3.max(pits,d=>d.chain)
+
+let ymin=d3.min(pits,d=>d.invert)-1
+let ymax=d3.max(pits,d=>d.ground)+1
+
+for(let x=xmin;x<=xmax;x+=10){
+
+svg.append("line")
+.attr("x1",scaleX(x))
+.attr("x2",scaleX(x))
+.attr("y1",scaleY(ymin))
+.attr("y2",scaleY(ymax))
+.attr("class","grid")
+
+}
+
+for(let y=ymin;y<=ymax;y+=0.5){
+
+svg.append("line")
+.attr("x1",scaleX(xmin))
+.attr("x2",scaleX(xmax))
+.attr("y1",scaleY(y))
+.attr("y2",scaleY(y))
+.attr("class","grid")
+
+}
 
 }
 
@@ -218,6 +259,8 @@ let results=compute()
 
 scaleX.domain(d3.extent(pits,d=>d.chain))
 scaleY.domain([d3.min(pits,d=>d.invert)-1,d3.max(pits,d=>d.ground)+1])
+
+drawGrid()
 
 let groundLine=d3.line()
 .x(d=>scaleX(d.chain))
@@ -266,18 +309,6 @@ svg.append("line")
 .attr("y2",scaleY(ws2+0.05))
 .attr("class","hgl")
 
-svg.append("text")
-.attr("x",(scaleX(a.chain)+scaleX(b.chain))/2)
-.attr("y",scaleY(ws1)-5)
-.text("WSE")
-.attr("class","label")
-
-svg.append("text")
-.attr("x",(scaleX(a.chain)+scaleX(b.chain))/2)
-.attr("y",scaleY(ws1+0.05)-5)
-.text("HGL")
-.attr("class","label")
-
 })
 
 pits.forEach(p=>{
@@ -307,125 +338,65 @@ updateTables(results)
 
 }
 
-function updateTables(results){
+function addPit(){
 
-let pitHTML="<tr><th>ID</th><th>Chain</th><th>Ground</th><th>Invert</th><th>Area</th><th>Imp</th></tr>"
+let last=pits[pits.length-1]
 
-pits.forEach((p,i)=>{
+let id=pits.length
 
-pitHTML+=`
-<tr>
-<td>${i}</td>
-<td><input value="${p.chain}" onchange="pits[${i}].chain=this.value;draw()"></td>
-<td><input value="${p.ground}" onchange="pits[${i}].ground=this.value;draw()"></td>
-<td><input value="${p.invert}" onchange="pits[${i}].invert=this.value;draw()"></td>
-<td><input value="${p.area}" onchange="pits[${i}].area=this.value;draw()"></td>
-<td><input value="${p.imp}" onchange="pits[${i}].imp=this.value;draw()"></td>
-</tr>`
+pits.push({
+id:id,
+type:"junction",
+chain:last.chain+40,
+ground:last.ground-0.05,
+invert:last.invert-0.05,
+area:300,
+imp:0.7
 })
 
-document.getElementById("pitTable").innerHTML=pitHTML
-
-let pipeHTML="<tr><th>Pipe</th><th>From</th><th>To</th><th>Dia mm</th><th>n</th></tr>"
-
-pipes.forEach((p,i)=>{
-
-pipeHTML+=`
-<tr>
-<td>${i}</td>
-<td>${p.from}</td>
-<td>${p.to}</td>
-<td><input value="${p.d*1000}" onchange="pipes[${i}].d=this.value/1000;draw()"></td>
-<td><input value="${p.n}" onchange="pipes[${i}].n=this.value;draw()"></td>
-</tr>`
+pipes.unshift({
+from:id,
+to:id-1,
+d:0.225,
+n:0.013
 })
 
-document.getElementById("pipeTable").innerHTML=pipeHTML
+draw()
 
-let resHTML="<tr><th>Pipe</th><th>Length</th><th>Grade</th><th>Flow</th><th>Velocity</th><th>Depth</th><th>y/D</th></tr>"
+}
 
-results.forEach((r,i)=>{
+function deletePit(){
 
-let p=pipes[i]
+if(pits.length<=1)return
 
-resHTML+=`
-<tr>
-<td>${i}</td>
-<td>${r.length.toFixed(1)}</td>
-<td>${r.grade.toFixed(4)}</td>
-<td>${r.flow.toFixed(3)}</td>
-<td>${r.velocity.toFixed(2)}</td>
-<td>${r.depth.toFixed(3)}</td>
-<td>${(r.depth/p.d).toFixed(2)}</td>
-</tr>`
-})
+pits.pop()
+pipes.shift()
 
-document.getElementById("resultTable").innerHTML=resHTML
+draw()
 
 }
 
 function autosize(){
 
-let flow=0
+let results=compute()
 
-for(let i=pipes.length-1;i>=0;i--){
+pipes.forEach((p,i)=>{
 
-let p=pipes[i]
-
-flow+=runoff(pits[p.from].area,pits[p.from].imp)
+let Q=results[i].flow
 
 for(let d of diameters){
 
 p.d=d
 
-let y=solveDepth(p,flow)
+let y=solveDepth(p,Q)
 
-if(y/d<0.8) break
-
-}
+if(y/d<0.8)break
 
 }
+
+})
 
 draw()
-
-}
-
-function saveJSON(){
-
-let blob=new Blob([JSON.stringify({pits,pipes})])
-
-let a=document.createElement("a")
-a.href=URL.createObjectURL(blob)
-a.download="storm_network.json"
-a.click()
-
-}
-
-function loadJSON(){
-
-let input=document.createElement("input")
-input.type="file"
-
-input.onchange=e=>{
-
-let reader=new FileReader()
-
-reader.onload=ev=>{
-
-let d=JSON.parse(ev.target.result)
-
-pits=d.pits
-pipes=d.pipes
-
-draw()
-
-}
-
-reader.readAsText(e.target.files[0])
-
-}
-
-input.click()
 
 }
 
