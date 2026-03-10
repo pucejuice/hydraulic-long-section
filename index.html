@@ -1801,13 +1801,24 @@ function renderLongSection() {
 
   // HGL if calculated
   if (calcResults) {
-    for (const r of calcResults.pipeResults) {
+    for (let pi = 0; pi < calcResults.pipeResults.length; pi++) {
+      const r = calcResults.pipeResults[pi];
       const fromN = getNode(r.pipe.from);
       const toN   = getNode(r.pipe.to);
-      if (!fromN || !toN || r.hgl_us === null) continue;
+      if (!fromN || !toN || r.hgl_us === null || r.hgl_ds === null) continue;
+
+      // Friction slope segment: barrel of pipe (hgl_us minus pit loss → hgl_ds)
+      const hgl_us_friction = r.hgl_us - r.hL_pit;
       g.append('line').attr('class','hgl-line')
-        .attr('x1', xScale(fromN.chainage)).attr('y1', yScale(r.hgl_us))
-        .attr('x2', xScale(toN.chainage)).attr('y2', yScale(r.hgl_ds || r.hgl_us));
+        .attr('x1', xScale(fromN.chainage)).attr('y1', yScale(hgl_us_friction))
+        .attr('x2', xScale(toN.chainage)).attr('y2', yScale(r.hgl_ds));
+
+      // Pit loss vertical step at upstream node
+      if (r.hL_pit > 0.001) {
+        g.append('line').attr('class','hgl-line')
+          .attr('x1', xScale(fromN.chainage)).attr('y1', yScale(r.hgl_ds))
+          .attr('x2', xScale(fromN.chainage)).attr('y2', yScale(r.hgl_us));
+      }
     }
   }
 
@@ -2059,12 +2070,29 @@ function exportDXF() {
       [dxX(midCh), dxY(midIL + D) + 0.2], { layer: 'LABELS', height: 0.35 }));
   }
 
-  // HGL
+  // HGL — pipe segments plus vertical step at each pit node
   if (calcResults) {
-    for (const r of calcResults.pipeResults) {
+    for (let pi = 0; pi < calcResults.pipeResults.length; pi++) {
+      const r = calcResults.pipeResults[pi];
       const fromN = getNode(r.pipe.from), toN = getNode(r.pipe.to);
-      if (!fromN || !toN || r.hgl_us === null) continue;
-      drawing.append(new Line([[dxX(fromN.chainage), dxY(r.hgl_us)], [dxX(toN.chainage), dxY(r.hgl_ds)]], { layer: 'HGL' }));
+      if (!fromN || !toN || r.hgl_us === null || r.hgl_ds === null) continue;
+
+      // Friction slope segment: hgl_us (just inside upstream pit) → hgl_ds (downstream node)
+      // But hgl_us already includes the pit loss step; the friction slope line
+      // runs from (hgl_us - hL_pit) at the upstream chainage to hgl_ds at downstream chainage
+      const hgl_us_friction = r.hgl_us - r.hL_pit; // HGL at upstream end of pipe barrel
+      drawing.append(new Line(
+        [[dxX(fromN.chainage), dxY(hgl_us_friction)], [dxX(toN.chainage), dxY(r.hgl_ds)]],
+        { layer: 'HGL' }
+      ));
+
+      // Pit loss vertical step at upstream node (if K > 0)
+      if (r.hL_pit > 0.001) {
+        drawing.append(new Line(
+          [[dxX(fromN.chainage), dxY(r.hgl_ds)], [dxX(fromN.chainage), dxY(r.hgl_us)]],
+          { layer: 'HGL' }
+        ));
+      }
     }
   }
 
@@ -2128,6 +2156,8 @@ function exportDXF() {
       { label: 'Q full (L/s)',      fn: c => c.type === 'pipe' && c.data ? c.data.Qfull.toFixed(2) : '' },
       { label: 'Q / Qfull',         fn: c => c.type === 'pipe' && c.data ? c.data.ratio.toFixed(3) : '' },
       { label: 'V full (m/s)',      fn: c => c.type === 'pipe' && c.data ? c.data.Vfull.toFixed(2) : '' },
+      { label: 'Pit Loss K',        fn: c => c.type === 'node' && c.data.K != null && c.data.K > 0 ? c.data.K.toFixed(2) : '' },
+      { label: 'hL pit (m)',        fn: c => c.type === 'pipe' && c.data && c.data.hL_pit > 0 ? c.data.hL_pit.toFixed(4) : '' },
       { label: 'HGL US (m AHD)',    fn: c => c.type === 'pipe' && c.data && c.data.hgl_us !== null ? c.data.hgl_us.toFixed(3) : '' },
       { label: 'HGL DS (m AHD)',    fn: c => c.type === 'pipe' && c.data && c.data.hgl_ds !== null ? c.data.hgl_ds.toFixed(3) : '' },
       { label: 'Catchment (m2)',    fn: c => c.type === 'node' && c.data.area > 0 ? c.data.area.toFixed(0) : '' },
@@ -2181,7 +2211,7 @@ function exportDXF() {
 
     // Title row above table
     drawing.append(new Text(
-      `PIPE LONG SECTION SCHEDULE  |  i=${calcResults.i.toFixed(1)}mm/hr  |  Rational Method Q=CiA/360`,
+      `PIPE LONG SECTION  |  ${calcResults.ari}yr ARI  |  i=${calcResults.i.toFixed(1)}mm/hr  |  Fy=${calcResults.Fy ? calcResults.Fy.toFixed(3) : '1.000'}  |  Q=Fy.C.i.A/3600 (m2,mm/hr->L/s)`,
       [tableLeft, tableTop + 0.3], { layer: 'TABLE_HDR', height: 0.4 }
     ));
   }
