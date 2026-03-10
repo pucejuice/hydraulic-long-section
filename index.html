@@ -534,7 +534,7 @@
                 <th>From→To</th>
                 <th>Dia (mm)</th>
                 <th>Material</th>
-                <th>Slope ‰</th>
+                <th>Slope %</th>
               </tr>
             </thead>
             <tbody id="pipe-tbody"></tbody>
@@ -895,13 +895,13 @@ function getPipeSlope(p) {
   if (!a || !b) return 0;
   const dL = b.chainage - a.chainage;
   const dH = a.il - b.il;
-  return dL > 0 ? dH / dL * 1000 : 0; // ‰
+  return dL > 0 ? dH / dL : 0; // m/m
 }
 
 // Manning's full-pipe capacity
-function manningQ(dia_mm, slope_permille, n) {
+function manningQ(dia_mm, slope_mm, n) {
   const D = dia_mm / 1000;
-  const S = slope_permille / 1000;
+  const S = slope_mm; // already m/m
   if (S <= 0 || D <= 0) return 0;
   const A = Math.PI * D * D / 4;
   const R = D / 4;
@@ -909,9 +909,9 @@ function manningQ(dia_mm, slope_permille, n) {
 }
 
 // Manning's full-pipe velocity
-function manningV(dia_mm, slope_permille, n) {
+function manningV(dia_mm, slope_mm, n) {
   const D = dia_mm / 1000;
-  const S = slope_permille / 1000;
+  const S = slope_mm; // already m/m
   if (S <= 0 || D <= 0) return 0;
   const R = D / 4;
   return (1 / n) * Math.pow(R, 2/3) * Math.pow(S, 0.5);
@@ -1114,11 +1114,11 @@ function onDurationChange() {
 
 // Find the minimum standard diameter that carries Qdesign at the given slope/material
 // Returns { dia, Qfull, Vfull } or null if none in list works
-function sizePipe(Qdesign_Ls, slope_permille, material) {
+function sizePipe(Qdesign_Ls, slope_mm, material) {
   const n_val = PIPE_MATERIALS[material]?.n || 0.013;
   for (const d of STD_DIAMETERS) {
-    const Qf = manningQ(d, slope_permille, n_val) * 1000;
-    const Vf = manningV(d, slope_permille, n_val);
+    const Qf = manningQ(d, slope_mm, n_val) * 1000;
+    const Vf = manningV(d, slope_mm, n_val);
     // Must carry flow and meet minimum velocity
     if (Qf >= Qdesign_Ls && Vf >= 0.6) {
       return { dia: d, Qfull: Qf, Vfull: Vf };
@@ -1185,7 +1185,7 @@ function runCalc() {
       const n_m = n_val;
       const Q_m3s = Qdesign / 1000;
       const denom = A_pipe * Math.pow(R_pipe, 2/3) / n_m;
-      Sf = denom > 0 ? Math.pow(Q_m3s / denom, 2) : slope / 1000;
+      Sf = denom > 0 ? Math.pow(Q_m3s / denom, 2) : slope;
     }
 
     const pipeLen = fromN && toN ? Math.abs(toN.chainage - fromN.chainage) : 0;
@@ -1234,14 +1234,12 @@ function runCalc() {
   });
 
   // ---- HGL second pass: seed at outlet, propagate upstream ----
-  // hgl_ds of last pipe = outlet IL + normal depth (tailwater = normal depth at outlet)
-  // hgl_us of pipe      = hgl_ds + friction loss along pipe
-  // hgl_ds of upstream pipe = hgl_us of this pipe + pit entry loss at the joining node
-  //
-  // "hgl at node" = EGL at that node's crown, used as downstream boundary for next pipe up
-  const hglAtNode = {}; // node id → HGL level entering that node from downstream
+  // hgl at each node is the maximum of:
+  //   (a) downstream HGL + friction loss up the pipe  (energy grade line)
+  //   (b) node IL + normal depth  (cannot be below the water surface in the pipe)
+  const hglAtNode = {};
 
-  // Seed: outlet node — HGL = IL + y_norm of last pipe
+  // Seed: outlet node = IL + y_norm of last pipe
   if (pipeResults.length > 0) {
     const lastPR = pipeResults[pipeResults.length - 1];
     const outletNode = getNode(lastPR.pipe.to);
@@ -1256,18 +1254,22 @@ function runCalc() {
     const fromN = getNode(pr.pipe.from);
     const toN   = getNode(pr.pipe.to);
 
-    // DS end of this pipe = HGL arriving at the downstream node
+    // DS end of this pipe
     const hgl_ds_node = hglAtNode[pr.pipe.to] ?? (toN ? toN.il + pr.y_norm : null);
     pr.hgl_ds = hgl_ds_node;
 
-    // US end: add friction loss up the pipe
-    const hgl_us_pipe = hgl_ds_node !== null ? hgl_ds_node + pr.hf : null;
-    // Then add pit entry loss at the upstream node
-    const hgl_us_node = hgl_us_pipe !== null ? hgl_us_pipe + pr.hL_pit : null;
+    if (hgl_ds_node === null) { pr.hgl_us = null; continue; }
+
+    // US end: add friction loss, but floor at normal depth above upstream invert
+    const hgl_us_by_friction = hgl_ds_node + pr.hf;
+    const hgl_us_min         = fromN ? fromN.il + pr.y_norm : hgl_us_by_friction;
+    const hgl_us_pipe        = Math.max(hgl_us_by_friction, hgl_us_min);
+
+    // Add pit entry loss at upstream node
+    const hgl_us_node = hgl_us_pipe + pr.hL_pit;
     pr.hgl_us = hgl_us_node;
 
-    // The HGL "at" the upstream node (available to the pipe above) = hgl_us_node
-    // (i.e. the HGL just inside the upstream pit, above any entry loss)
+    // Propagate: next pipe upstream sees this as its downstream HGL
     if (fromN) hglAtNode[fromN.id] = hgl_us_node;
   }
 
@@ -1482,7 +1484,7 @@ function renderPipeTable() {
   const tbody = document.getElementById('pipe-tbody');
   tbody.innerHTML = '';
   pipes.forEach((p, idx) => {
-    const slopeVal = getPipeSlope(p).toFixed(2);
+    const slopeVal = (getPipeSlope(p) * 100).toFixed(3);
     const matOptions = Object.keys(PIPE_MATERIALS).map(m =>
       `<option value="${m}" ${p.material===m?'selected':''}>${m}</option>`
     ).join('');
@@ -1506,7 +1508,7 @@ function renderResults(res) {
 
   let html = `<table class="results-table">
     <thead><tr>
-      <th>Pipe</th><th>Q des<br>(L/s)</th><th>Q full<br>(L/s)</th><th>Q/Qf</th><th>V<br>(m/s)</th><th>S<br>‰</th><th>Cov<br>US mm</th><th>Rec. Ø</th><th>Status</th>
+      <th>Pipe</th><th>Q des<br>(L/s)</th><th>Q full<br>(L/s)</th><th>Q/Qf</th><th>V<br>(m/s)</th><th>S<br>(%)</th><th>Cov<br>US mm</th><th>Rec. Ø</th><th>Status</th>
     </tr></thead><tbody>`;
 
   let warnHtml = '';
@@ -1526,7 +1528,7 @@ function renderResults(res) {
       <td>${fmt(r.Qfull,1)}</td>
       <td class="${statusClass}">${fmt(r.ratio,2)}</td>
       <td class="${r.Vfull < 0.6 ? 'result-warn' : 'result-ok'}">${fmt(r.Vfull,2)}</td>
-      <td>${fmt(r.slope,2)}</td>
+      <td>${(r.slope*100).toFixed(3)}</td>
       <td class="${coverClass}">${r.cover_us_mm !== null ? Math.round(r.cover_us_mm) : '—'}</td>
       <td class="${recCls}">${recDia}</td>
       <td class="${statusClass}">${r.status}</td>
@@ -1569,7 +1571,7 @@ function renderDataTable(res) {
     <th class="col-pipe">Mat.</th>
     <th class="col-pipe">n</th>
     <th class="col-pipe">Len (m)</th>
-    <th class="col-pipe">Slope ‰</th>
+    <th class="col-pipe">Slope %</th>
     <th class="col-pipe">Q des<br>(L/s)</th>
     <th class="col-pipe">Q full<br>(L/s)</th>
     <th class="col-pipe">Q/Qf</th>
@@ -1596,7 +1598,7 @@ function renderDataTable(res) {
     const ratioC = pr.ratio > 1 ? 'val-fail' : pr.ratio > 0.85 ? 'val-warn' : 'val-ok';
     const velC   = pr.Vfull < 0.6 ? 'val-warn' : 'val-ok';
     const statC  = pr.status === 'OK' ? 'val-ok' : pr.status === 'OVER' ? 'val-fail' : 'val-warn';
-    const slopeC = pr.slope < 3.3 ? 'val-warn' : '';
+    const slopeC = pr.slope < 0.0033 ? 'val-warn' : '';
 
     const qNode = res.flowAtNode[fromN.id] || 0;
     const n_val = PIPE_MATERIALS[p.material]?.n || 0.013;
@@ -1627,7 +1629,7 @@ function renderDataTable(res) {
       <td class="col-pipe">${p.material}</td>
       <td class="col-pipe">${n_val.toFixed(3)}</td>
       <td class="col-pipe">${pipeLen}</td>
-      <td class="col-pipe ${slopeC}">${pr.slope.toFixed(2)}</td>
+      <td class="col-pipe ${slopeC}">${(pr.slope*100).toFixed(3)}%</td>
       <td class="col-pipe">${pr.Qdesign.toFixed(2)}</td>
       <td class="col-pipe">${pr.Qfull.toFixed(2)}</td>
       <td class="col-pipe ${ratioC}">${pr.ratio.toFixed(3)}</td>
@@ -1780,11 +1782,11 @@ function renderLongSection() {
     // Pipe diameter label at midpoint
     const midX = (fromN.chainage + toN.chainage) / 2;
     const midIL = (fromN.il + toN.il) / 2;
-    const slope = getPipeSlope(p).toFixed(1);
+    const slope = (getPipeSlope(p) * 100).toFixed(3);
     g.append('text').attr('class','pipe-label')
       .attr('x', xScale(midX)).attr('y', yScale(midIL) - 6)
       .attr('text-anchor','middle')
-      .text(`Ø${p.dia} ${p.material} S=${slope}‰`);
+      .text(`Ø${p.dia} ${p.material} S=${slope}%`);
 
     // Pipe depth fill (represents pipe cylinder)
     const pipeArea = d3.area()
@@ -1893,7 +1895,7 @@ function renderLongSection() {
       }
       if (nearest) {
         const r = calcResults?.pipeResults.find(x => x.pipe === nearest);
-        let html = `<b>${nearest.from}→${nearest.to}</b><br>Ø${nearest.dia}mm ${nearest.material}<br>S=${getPipeSlope(nearest).toFixed(2)}‰`;
+        let html = `<b>${nearest.from}→${nearest.to}</b><br>Ø${nearest.dia}mm ${nearest.material}<br>S=${(getPipeSlope(nearest)*100).toFixed(3)}%`;
         if (r) html += `<br>Q=${fmt(r.Qdesign,1)}L/s Qf=${fmt(r.Qfull,1)}L/s<br>V=${fmt(r.Vfull,2)}m/s Ratio=${fmt(r.ratio,2)}`;
         tooltip.innerHTML = html;
         tooltip.style.left = (event.clientX + 14) + 'px';
@@ -2066,7 +2068,7 @@ function exportDXF() {
     const slope = getPipeSlope(p);
     const r = calcResults?.pipeResults.find(x => x.pipe === p);
     const ratioTxt = r ? ` Q/Qf=${r.ratio.toFixed(2)}` : '';
-    drawing.append(new Text(`Dia ${p.dia}mm ${p.material} S=${slope.toFixed(2)}‰${ratioTxt}`,
+    drawing.append(new Text(`Dia ${p.dia}mm ${p.material} S=${(slope*100).toFixed(3)}%${ratioTxt}`,
       [dxX(midCh), dxY(midIL + D) + 0.2], { layer: 'LABELS', height: 0.35 }));
   }
 
@@ -2115,105 +2117,220 @@ function exportDXF() {
   });
 
   // ---- DATA TABLE (below long section) ----
-  // Table starts at Y = drawingYBase - 2, columns aligned to node/pipe chainages
+  // Layout: one column per pit (joined with its downstream pipe), plus final outlet column.
+  // Column x-position = midpoint between pit chainage and next node chainage (pipe midpoint).
+  // Final outlet column sits at outlet chainage.
 
   if (calcResults) {
-    const colNodPipe = [];
-    for (let i = 0; i < sortedNodes.length; i++) {
-      colNodPipe.push({ type: 'node', data: sortedNodes[i] });
-      if (i < sortedNodes.length - 1) {
-        const pr = calcResults.pipeResults.find(r =>
-          r.pipe.from === sortedNodes[i].id && r.pipe.to === sortedNodes[i+1].id);
-        colNodPipe.push({ type: 'pipe', data: pr || null });
-      }
-    }
-
     const minCover = parseFloat(document.getElementById('min-cover').value) || 600;
-    const tableRows = [
-      { label: 'Node / Pipe',       fn: c => c.type === 'node' ? c.data.label : (c.data ? `${c.data.pipe.from}→${c.data.pipe.to}` : '') },
-      { label: 'Chainage (m)',      fn: c => c.type === 'node' ? c.data.chainage.toFixed(1) : '' },
-      { label: 'GL (m AHD)',        fn: c => c.type === 'node' ? c.data.gl.toFixed(3) : '' },
-      { label: 'IL (m AHD)',        fn: c => c.type === 'node' ? c.data.il.toFixed(3) : '' },
-      { label: 'Depth to IL (m)',   fn: c => c.type === 'node' ? (c.data.gl - c.data.il).toFixed(3) : '' },
-      { label: 'Cover (mm)',        fn: c => {
-          if (c.type !== 'node') return '';
-          const cp = calcResults.pipeResults.find(r => r.pipe.from === c.data.id || r.pipe.to === c.data.id);
-          if (!cp) return '';
-          return Math.round((c.data.gl - c.data.il - cp.pipe.dia/1000) * 1000) + '';
-        }
-      },
-      { label: 'Pipe Dia (mm)',     fn: c => c.type === 'pipe' && c.data ? 'O' + c.data.pipe.dia : '' },
-      { label: 'Material',          fn: c => c.type === 'pipe' && c.data ? c.data.pipe.material : '' },
-      { label: "n (Manning's)",     fn: c => c.type === 'pipe' && c.data ? (PIPE_MATERIALS[c.data.pipe.material]?.n || 0.013).toFixed(3) : '' },
-      { label: 'Length (m)',        fn: c => {
-          if (c.type !== 'pipe' || !c.data) return '';
-          const fN = getNode(c.data.pipe.from), tN = getNode(c.data.pipe.to);
-          return fN && tN ? Math.abs(tN.chainage - fN.chainage).toFixed(1) : '';
-        }
-      },
-      { label: 'Slope (o/oo)',      fn: c => c.type === 'pipe' && c.data ? c.data.slope.toFixed(2) : '' },
-      { label: 'Q design (L/s)',    fn: c => c.type === 'pipe' && c.data ? c.data.Qdesign.toFixed(2) : '' },
-      { label: 'Q full (L/s)',      fn: c => c.type === 'pipe' && c.data ? c.data.Qfull.toFixed(2) : '' },
-      { label: 'Q / Qfull',         fn: c => c.type === 'pipe' && c.data ? c.data.ratio.toFixed(3) : '' },
-      { label: 'V full (m/s)',      fn: c => c.type === 'pipe' && c.data ? c.data.Vfull.toFixed(2) : '' },
-      { label: 'Pit Loss K',        fn: c => c.type === 'node' && c.data.K != null && c.data.K > 0 ? c.data.K.toFixed(2) : '' },
-      { label: 'hL pit (m)',        fn: c => c.type === 'pipe' && c.data && c.data.hL_pit > 0 ? c.data.hL_pit.toFixed(4) : '' },
-      { label: 'HGL US (m AHD)',    fn: c => c.type === 'pipe' && c.data && c.data.hgl_us !== null ? c.data.hgl_us.toFixed(3) : '' },
-      { label: 'HGL DS (m AHD)',    fn: c => c.type === 'pipe' && c.data && c.data.hgl_ds !== null ? c.data.hgl_ds.toFixed(3) : '' },
-      { label: 'Catchment (m2)',    fn: c => c.type === 'node' && c.data.area > 0 ? c.data.area.toFixed(0) : '' },
-      { label: 'Fraction Imp.',     fn: c => c.type === 'node' && c.data.area > 0 ? c.data.Cf.toFixed(2) : '' },
-      { label: 'Status',            fn: c => c.type === 'pipe' && c.data ? c.data.status : '' },
-    ];
 
-    const ROW_H = 0.7;   // height of each table row in DXF units
-    const COL_W = Math.max(4, totalLength / colNodPipe.length); // width per column
-    const LABEL_W = 4.5; // width of row-label column
-    const tableTop = drawingYBase - 1;
+    // Build columns: each entry covers a node + the pipe leaving it (if any)
+    // cols[i] = { node, pr (pipe result, may be null for outlet) }
+    const cols = sortedNodes.map((n, ni) => {
+      const pr = ni < sortedNodes.length - 1
+        ? calcResults.pipeResults.find(r => r.pipe.from === n.id)
+        : null;
+      return { node: n, pr };
+    });
+
+    // Column x positions:
+    // For pit+pipe columns: centre text at chainage of the pit (node)
+    // The column itself spans from pit chainage to next node chainage (pipe span)
+    // For display: col centre = pit chainage; col right edge = next node chainage
+    // We'll use fixed COL_W based on total drawing width / number of spans
+    const nSpans = sortedNodes.length - 1; // number of pipes
+    const COL_W = nSpans > 0 ? Math.max(5, totalLength / nSpans) : 8;
+    const LABEL_W = 5.0;
+    const ROW_H = 0.65;
+    const tableTop = drawingYBase - 1.5;
     const tableLeft = -LABEL_W;
 
+    // Column centre x for each col (pit chainage projected to drawing x)
+    const colCentreX = cols.map(c => dxX(c.node.chainage));
+
+    // ---- ROWS definition (condensed: pit and pipe data in same column) ----
+    // Each fn(col) returns the cell text — draws node data and pipe data together
+    const tableRows = [
+      {
+        label: 'Node',
+        fn: c => c.node.label + (c.pr ? `  /  ${c.pr.pipe.from}\u2192${c.pr.pipe.to}` : ''),
+        isHeader: true,
+      },
+      {
+        label: 'Chainage (m)',
+        fn: c => c.node.chainage.toFixed(1) + (c.pr ? `  /  ${getNode(c.pr.pipe.to)?.chainage.toFixed(1) ?? ''}` : ''),
+      },
+      {
+        label: 'Catchment (m\u00B2)',
+        fn: c => c.node.area > 0 ? c.node.area.toFixed(0) : '\u2014',
+      },
+      {
+        label: 'Fraction Imp. (C)',
+        fn: c => c.node.area > 0 ? c.node.Cf.toFixed(2) : '\u2014',
+      },
+      {
+        label: 'GL (m AHD)',
+        fn: c => c.node.gl.toFixed(3),
+      },
+      {
+        label: 'IL (m AHD)',
+        fn: c => c.node.il.toFixed(3),
+      },
+      {
+        label: 'Depth to IL (m)',
+        fn: c => (c.node.gl - c.node.il).toFixed(3),
+      },
+      {
+        label: 'Cover US (mm)',
+        fn: c => {
+          if (!c.pr) return '\u2014';
+          return Math.round((c.node.gl - c.node.il - c.pr.pipe.dia / 1000) * 1000) + '';
+        },
+      },
+      {
+        label: 'Pit Loss K',
+        fn: c => c.node.K != null && c.node.K > 0 ? c.node.K.toFixed(2) : '\u2014',
+      },
+      { label: '', fn: () => '', isSeparator: true },  // visual divider — pipe data below
+      {
+        label: 'Pipe Dia (mm)',
+        fn: c => c.pr ? '\u00D8' + c.pr.pipe.dia : '\u2014',
+      },
+      {
+        label: 'Material',
+        fn: c => c.pr ? c.pr.pipe.material : '\u2014',
+      },
+      {
+        label: "n (Manning's)",
+        fn: c => c.pr ? (PIPE_MATERIALS[c.pr.pipe.material]?.n || 0.013).toFixed(3) : '\u2014',
+      },
+      {
+        label: 'Length (m)',
+        fn: c => {
+          if (!c.pr) return '\u2014';
+          const tN = getNode(c.pr.pipe.to);
+          return tN ? Math.abs(tN.chainage - c.node.chainage).toFixed(1) : '\u2014';
+        },
+      },
+      {
+        label: 'Slope (%)',
+        fn: c => c.pr ? (c.pr.slope * 100).toFixed(3) : '\u2014',
+      },
+      {
+        label: 'Q design (L/s)',
+        fn: c => c.pr ? c.pr.Qdesign.toFixed(2) : '\u2014',
+      },
+      {
+        label: 'Q full (L/s)',
+        fn: c => c.pr ? c.pr.Qfull.toFixed(2) : '\u2014',
+      },
+      {
+        label: 'Q / Qfull',
+        fn: c => c.pr ? c.pr.ratio.toFixed(3) : '\u2014',
+      },
+      {
+        label: 'V full (m/s)',
+        fn: c => c.pr ? c.pr.Vfull.toFixed(2) : '\u2014',
+      },
+      {
+        label: 'hL pit (m)',
+        fn: c => c.pr && c.pr.hL_pit > 0 ? c.pr.hL_pit.toFixed(4) : '\u2014',
+      },
+      {
+        label: 'HGL US (m AHD)',
+        fn: c => c.pr && c.pr.hgl_us !== null ? c.pr.hgl_us.toFixed(3) : '\u2014',
+      },
+      {
+        label: 'HGL DS (m AHD)',
+        fn: c => c.pr && c.pr.hgl_ds !== null ? c.pr.hgl_ds.toFixed(3) : '\u2014',
+      },
+      {
+        label: 'Status',
+        fn: c => c.pr ? c.pr.status : '\u2014',
+      },
+    ];
+
+    // Add datum row at top
+    const datumRows = [
+      { label: 'DATUM (m AHD)', fn: c => c.node.chainage.toFixed(1) === c.node.chainage.toFixed(1) ? c.node.gl.toFixed(3) : '' },
+    ];
+    // Actually put datum as very first row — shows GL as datum reference
+    tableRows.unshift({ label: 'Datum GL (m AHD)', fn: c => c.node.gl.toFixed(3), isDatum: true });
+
+    const numRows = tableRows.length;
+    const tableH = numRows * ROW_H;
+    const tableW = LABEL_W + cols.length * COL_W;
+
     // Table outer border
-    const tableH = tableRows.length * ROW_H;
-    const tableW = LABEL_W + colNodPipe.length * COL_W;
     drawing.append(new Rectangle({ point: [tableLeft, tableTop - tableH], width: tableW, height: tableH, layer: 'TABLE' }));
 
-    // Header row background lines
-    drawing.append(new Line([[tableLeft, tableTop], [tableLeft + tableW, tableTop]], { layer: 'TABLE_HDR' }));
+    // Header divider (below col-header row)
     drawing.append(new Line([[tableLeft, tableTop - ROW_H], [tableLeft + tableW, tableTop - ROW_H]], { layer: 'TABLE_HDR' }));
 
-    // Column header labels
-    colNodPipe.forEach((c, ci) => {
-      const cx = tableLeft + LABEL_W + ci * COL_W + COL_W * 0.1;
-      const lbl = c.type === 'node' ? c.data.label : (c.data ? `${c.data.pipe.from}-${c.data.pipe.to}` : '');
-      drawing.append(new Text(lbl, [cx, tableTop - ROW_H + 0.15], { layer: 'TABLE_HDR', height: 0.3 }));
-      // Vertical divider
+    // Column headers + vertical dividers
+    cols.forEach((c, ci) => {
+      const cx = tableLeft + LABEL_W + ci * COL_W + 0.15;
+      const lbl = c.node.label + (c.pr ? `/${c.pr.pipe.from}\u2192${c.pr.pipe.to}` : '');
+      drawing.append(new Text(lbl, [cx, tableTop - ROW_H + 0.15], { layer: 'TABLE_HDR', height: 0.28 }));
       const vx = tableLeft + LABEL_W + ci * COL_W;
       drawing.append(new Line([[vx, tableTop], [vx, tableTop - tableH]], { layer: 'TABLE' }));
     });
-    // Row label column right border
+    // Row-label column right border
     drawing.append(new Line([[tableLeft + LABEL_W, tableTop], [tableLeft + LABEL_W, tableTop - tableH]], { layer: 'TABLE' }));
 
     // Data rows
     tableRows.forEach((row, ri) => {
       const rowY = tableTop - (ri + 1) * ROW_H;
-      // Row divider
       drawing.append(new Line([[tableLeft, rowY], [tableLeft + tableW, rowY]], { layer: 'TABLE' }));
-      // Row label
-      drawing.append(new Text(row.label, [tableLeft + 0.1, rowY + 0.15], { layer: 'TABLE_HDR', height: 0.25 }));
-      // Cell values
-      colNodPipe.forEach((c, ci) => {
+      // Row label — bold style for separator, datum, header rows
+      const lblLayer = (row.isSeparator || row.isDatum || row.isHeader) ? 'TABLE_HDR' : 'TABLE_HDR';
+      drawing.append(new Text(row.label, [tableLeft + 0.1, rowY + 0.15], { layer: lblLayer, height: row.isDatum ? 0.28 : 0.22 }));
+      // Separator rows — draw thicker divider line, skip cell values
+      if (row.isSeparator) {
+        drawing.append(new Line([[tableLeft, rowY + ROW_H], [tableLeft + tableW, rowY + ROW_H]], { layer: 'TABLE_HDR' }));
+        return;
+      }
+      cols.forEach((c, ci) => {
         const val = row.fn(c);
-        if (val) {
+        if (val && val !== '—') {
           const cx = tableLeft + LABEL_W + ci * COL_W + 0.15;
-          drawing.append(new Text(val, [cx, rowY + 0.15], { layer: 'TABLE_VAL', height: 0.25 }));
+          const layer = row.isDatum ? 'TABLE_HDR' : 'TABLE_VAL';
+          drawing.append(new Text(val, [cx, rowY + 0.15], { layer, height: row.isDatum ? 0.28 : 0.22 }));
         }
       });
     });
 
-    // Title row above table
+    // ---- TITLE + SCALE INFO above table ----
+    const titleY = tableTop + 0.5;
     drawing.append(new Text(
-      `PIPE LONG SECTION  |  ${calcResults.ari}yr ARI  |  i=${calcResults.i.toFixed(1)}mm/hr  |  Fy=${calcResults.Fy ? calcResults.Fy.toFixed(3) : '1.000'}  |  Q=Fy.C.i.A/3600 (m2,mm/hr->L/s)`,
-      [tableLeft, tableTop + 0.3], { layer: 'TABLE_HDR', height: 0.4 }
+      `PIPE LONG SECTION  |  ${calcResults.ari}yr ARI  |  i=${calcResults.i.toFixed(1)}mm/hr  |  Fy=${calcResults.Fy ? calcResults.Fy.toFixed(3) : '1.000'}  |  Q=Fy.C.i.A/3600`,
+      [tableLeft, titleY], { layer: 'TABLE_HDR', height: 0.45 }
     ));
+    drawing.append(new Text(
+      `H SCALE 1:${totalLength > 0 ? Math.round(totalLength * 10) : 100}  |  V SCALE 1:${Math.round(totalLength * 10 / VSCALE)}  |  VERT. EXAG. x${VSCALE}`,
+      [tableLeft, titleY - 0.7], { layer: 'TABLE_HDR', height: 0.35 }
+    ));
+
+    // ---- SCALE BAR (horizontal, below title, left of table) ----
+    // Draw a 10m scale bar
+    const sbY = tableTop - tableH - 1.2;
+    const sbX = tableLeft;
+    const sbLen = Math.min(10, totalLength / 3); // 10m or 1/3 of total
+    const sbTicks = 5;
+    const sbSegW = sbLen / sbTicks;
+    for (let si = 0; si < sbTicks; si++) {
+      const x0 = sbX + si * sbSegW;
+      const x1 = sbX + (si + 1) * sbSegW;
+      const filled = si % 2 === 0;
+      drawing.append(new Line([[x0, sbY], [x1, sbY]], { layer: 'TABLE_HDR' }));
+      drawing.append(new Line([[x0, sbY], [x0, sbY + 0.3]], { layer: 'TABLE_HDR' }));
+      drawing.append(new Line([[x1, sbY], [x1, sbY + 0.3]], { layer: 'TABLE_HDR' }));
+      drawing.append(new Line([[x0, sbY + 0.3], [x1, sbY + 0.3]], { layer: 'TABLE_HDR' }));
+      // Tick label
+      drawing.append(new Text(`${(si * sbSegW).toFixed(0)}`, [x0, sbY - 0.5], { layer: 'TABLE_VAL', height: 0.25 }));
+    }
+    drawing.append(new Text(`${sbLen.toFixed(0)}m`, [sbX + sbLen, sbY - 0.5], { layer: 'TABLE_VAL', height: 0.25 }));
+    drawing.append(new Text('SCALE BAR (HORIZONTAL)', [sbX, sbY + 0.55], { layer: 'TABLE_HDR', height: 0.28 }));
   }
 
   const dxfStr = drawing.toString();
@@ -2394,4 +2511,4 @@ if (_initParams.get('lat') && _initParams.get('lng')) {
 }
 </script>
 </body>
-</html>
+  </html>
